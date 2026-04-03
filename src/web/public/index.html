@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Arc-Linear Optimizer Visualizer</title>
+    <style>
+        body { margin: 0; background: #121212; color: #fff; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; overflow: hidden; }
+        #canvas-container { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1; }
+        .ui-overlay { position: absolute; top: 20px; left: 20px; width: 300px; padding: 20px; background: rgba(0,0,0,0.8); border-radius: 8px; border: 1px solid #333; z-index: 10; pointer-events: auto; }
+        .ui-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
+        h1 { margin: 0 0 10px; font-size: 1.2rem; color: #00bcd4; }
+        .stat { margin: 5px 0; font-size: 0.9rem; opacity: 0.8; }
+        .controls { margin-top: 15px; }
+        button { background: #00bcd4; border: none; padding: 8px 15px; border-radius: 4px; color: #000; font-weight: bold; cursor: pointer; }
+        button:hover { background: #00e5ff; }
+        .legend { margin-top: 15px; font-size: 0.8rem; }
+        .legend-item { display: flex; align-items: center; margin: 3px 0; }
+        .color-box { width: 12px; height: 12px; margin-right: 8px; border-radius: 2px; }
+        .original-color { background: #ff5722; }
+        .optimized-color { background: #4caf50; }
+        .ideal-color { background: #00bcd4; }
+        .toggle-group { margin-top: 10px; font-size: 0.85rem; display: flex; flex-direction: column; gap: 5px; }
+        .toggle-item { display: flex; align-items: center; cursor: pointer; }
+        .toggle-item input { margin-right: 10px; }
+        select, input[type="number"] { background: #333; color: #fff; border: 1px solid #555; padding: 5px; width: 100%; border-radius: 4px; border-radius: 4px; margin-bottom: 8px; box-sizing: border-box; }
+        .controls-hint { margin-top: 15px; font-size: 0.8rem; color: #aaa; border-top: 1px solid #444; padding-top: 10px; }
+    </style>
+</head>
+<body>
+    <div id="canvas-container"></div>
+    <div class="ui-container">
+        <div class="ui-overlay">
+            <h1>Arc-Linear Visualizer</h1>
+            <div id="stats">
+                <div class="stat">Original Lines: <span id="orig-count">-</span></div>
+                <div class="stat">Optimized Lines: <span id="opt-count">-</span></div>
+                <div id="compression-msg" style="color: #4caf50; font-weight: bold; margin-top: 10px;"></div>
+            </div>
+            <div class="controls">
+            <div class="stat">Path Type:</div>
+            <select id="path-type">
+                <option value="CIRCLE">Circle (Standard)</option>
+                <option value="SPIRAL">Spiral (Continuous)</option>
+                <option value="SCURVE">S-Curve (Inflections)</option>
+                <option value="ZIGZAG">Zig-Zag (Serrated)</option>
+            </select>
+            <div class="stat">Active Seed:</div>
+            <input type="number" id="seed-input" value="123456">
+            <button onclick="regenerate()">Regenerate Toolpath</button>
+            <button onclick="randomizeSeed()" style="background: #555; margin-top: 5px;">Randomize Seed</button>
+        </div>
+            <div class="legend">
+            <div class="legend-item"><div class="color-box ideal-color"></div> Ideal Geometry (Reference)</div>
+            <div class="legend-item"><div class="color-box original-color"></div> Tessellated (Line Soup)</div>
+            <div class="legend-item"><div class="color-box optimized-color"></div> Optimized (Arc-Fitted)</div>
+        </div>
+        <div class="toggle-group">
+            <label class="toggle-item"><input type="checkbox" id="show-ideal" checked onchange="toggleLayer('ideal')"> Show Ideal</label>
+            <label class="toggle-item"><input type="checkbox" id="show-orig" checked onchange="toggleLayer('original')"> Show Tessellated</label>
+            <label class="toggle-item"><input type="checkbox" id="show-opt" checked onchange="toggleLayer('optimized')"> Show Optimized</label>
+        </div>
+            <div class="controls-hint">
+                <b>Controls:</b><br>
+                • Orbit: Left-Click + Drag<br>
+                • Pan: Right-Click + Drag<br>
+                • Zoom: Scroll Wheel
+            </div>
+        </div>
+    </div>
+
+    <!-- Three.js CDN -->
+    <script async src="https://unpkg.com/es-module-shims@1.6.3/dist/es-module-shims.js"></script>
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.154.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.154.0/examples/jsm/"
+        }
+    }
+    </script>
+    <script type="module" src="app.js"></script>
+</body>
+</html>

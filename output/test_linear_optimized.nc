@@ -1,0 +1,5 @@
+G21 (Metric Mode)
+G90 (Absolute)
+G0 X0 Y0 Z0
+G2 X1.0000 Y0.4500 I-0.0292 J1.3650
+M30
