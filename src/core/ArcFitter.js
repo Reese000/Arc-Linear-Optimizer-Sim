@@ -1,4 +1,5 @@
 const Verifier = require('../sim/Verifier');
+const GeometryUtils = require('./GeometryUtils');
 
 /**
  * ArcFitter attempts to replace sequences of G1 (linear) segments
@@ -19,7 +20,7 @@ class ArcFitter {
    * @param {number} [options.maxSearch=50] - Maximum points to search per fit.
    */
   constructor(tolerance = 0.001, options = {}) {
-    this.tolerance = tolerance; // Fit tolerance in machine units (inch for G20, mm for G21)
+    this.tolerance = tolerance;
     this.minArcRadius = options.minArcRadius || 0;
     this.maxArcRadius = options.maxArcRadius || Infinity;
     this.maxIJK = options.maxIJK || Infinity;
@@ -31,7 +32,7 @@ class ArcFitter {
   }
 
   /**
-   * Fits a circle to a set of points using the Kåasa method (simplified Least Squares).
+   * Fits a circle to a set of points using the Kåsa method (simplified Least Squares).
    * @param {Array} points - Array of {x, y} objects.
    * @returns {Object|null} - {center: {x, y}, radius} or null if fitting fails.
    */
@@ -60,17 +61,23 @@ class ArcFitter {
     const G = N * sumY2 - sumY * sumY;
     const H = N * sumX2Y + N * sumY3 - (sumX2 + sumY2) * sumY;
 
-    const xc = (E * G - H * D) / (2 * (C * G - D * D));
-    const yc = (H * C - E * D) / (2 * (C * G - D * D));
-    // Proper radius calculation: sqrt( (sum of squared distances - N*center^2) / N )
+    const denominator = 2 * (C * G - D * D);
+    if (Math.abs(denominator) < 1e-12) return null;
+
+    const xc = (E * G - H * D) / denominator;
+    const yc = (H * C - E * D) / denominator;
+
     const numerator = sumX2 + sumY2 - 2 * xc * sumX - 2 * yc * sumY + N * (xc * xc + yc * yc);
     const radius = Math.sqrt(Math.abs(numerator) / N);
 
-    if (isNaN(xc) || isNaN(yc) || isNaN(radius)) return null;
+    if (isNaN(xc) || isNaN(yc) || isNaN(radius) || radius <= 0) return null;
 
     return { center: { x: xc, y: yc }, radius: radius };
   }
 
+  /**
+   * Pratt's circle fit (geometric refinement of Kåasa).
+   */
   static fitCirclePratt(points) {
     if (points.length < 3) return null;
 
@@ -102,7 +109,6 @@ class ArcFitter {
     const xc = (E * G - H * D) / denominator;
     const yc = (H * C - E * D) / denominator;
 
-    // Pratt's method: minimize algebraic error (approximate geometric fit)
     const sumRSq = 0;
     for (const p of points) {
       const dx = p.x - xc;
@@ -116,6 +122,9 @@ class ArcFitter {
     return { center: { x: xc, y: yc }, radius: radius };
   }
 
+  /**
+   * Taubin's circle fit (constraint-based algebraic).
+   */
   static fitCircleTaubin(points) {
     if (points.length < 3) return null;
 
@@ -147,7 +156,6 @@ class ArcFitter {
     const xc = (E * G - H * D) / denominator;
     const yc = (H * C - E * D) / denominator;
 
-    // Taubin's method: constraint-based algebraic fit
     const gamma = (sumX2 + sumY2) / N - (xc*xc + yc*yc);
     const beta = (sumX3 + sumXY2 - (sumX2 + sumY2)*xc/N) / (2*(C/N));
     const radius = Math.sqrt(gamma + beta*beta);
@@ -158,7 +166,64 @@ class ArcFitter {
   }
 
   /**
-   * Verifies if all points in a set are within tolerance of a circle.
+   * RANSAC-based robust circle fitting.
+   * Randomly samples minimal 3-point sets, fits circles, and selects the one with most inliers.
+   * @param {Array} points - Array of {x, y}
+   * @param {number} tolerance - Inlier threshold
+   * @param {number} maxIterations - RANSAC iterations (default 100)
+   * @returns {Object|null} - Fitted circle with inlier count
+   */
+  static fitCircleRANSAC(points, tolerance = 0.001, maxIterations = 100) {
+    if (points.length < 3) return null;
+    let bestCircle = null;
+    let bestInliers = 0;
+
+    for (let iter = 0; iter < maxIterations; iter++) {
+      const idxs = new Set();
+      while (idxs.size < 3) {
+        idxs.add(Math.floor(Math.random() * points.length));
+      }
+      const sample = Array.from(idxs).map(i => points[i]);
+
+      const circle = ArcFitter.fitCircle(sample);
+      if (!circle) continue;
+
+      let inliers = 0;
+      for (const p of points) {
+        const dist = Math.hypot(p.x - circle.center.x, p.y - circle.center.y);
+        if (Math.abs(dist - circle.radius) <= tolerance) {
+          inliers++;
+        }
+      }
+
+      if (inliers > bestInliers) {
+        bestInliers = inliers;
+        bestCircle = { ...circle, inliers };
+      }
+    }
+
+    if (bestCircle && bestInliers >= 3) {
+      const inlierPoints = points.filter(p => {
+        const dist = Math.hypot(p.x - bestCircle.center.x, p.y - bestCircle.center.y);
+        return Math.abs(dist - bestCircle.radius) <= tolerance;
+      });
+      if (inlierPoints.length >= 3) {
+        const refined = ArcFitter.fitCirclePratt(inlierPoints);
+        if (refined) {
+          return { ...refined, inliers: inlierPoints.length };
+        }
+      }
+    }
+
+    return bestCircle;
+  }
+
+  /**
+   * Checks if all points lie within tolerance of the circle.
+   * @param {Array} points
+   * @param {Object} circle
+   * @param {number} tolerance
+   * @returns {boolean}
    */
   static isWithinTolerance(points, circle, tolerance) {
     for (const p of points) {
@@ -169,10 +234,41 @@ class ArcFitter {
   }
 
   static isArcValid(points, circle, start, end, tolerance) {
-    // Delegate to Verifier to avoid logic duplication
     const verifier = new Verifier(tolerance);
     const result = verifier.verify(points, circle, start, end);
     return result.isSafe;
+  }
+
+  /**
+   * Computes comprehensive statistics about a set of arcs.
+   * @param {Array} arcs - Array of arc records
+   * @returns {Object} - Statistics object
+   */
+  static computeArcStats(arcs) {
+    if (!arcs || arcs.length === 0) {
+      return { count: 0, avgSweepDegrees: 0, maxSweepDegrees: 0, avgRadius: 0, radiusCV: 0, smallArcPct: 0, largeSweepPct: 0 };
+    }
+
+    const sweeps = arcs.map(a => a.sweepDegrees);
+    const radii = arcs.map(a => a.circle.radius);
+    const avgSweep = sweeps.reduce((a,b) => a+b, 0) / sweeps.length;
+    const maxSweep = Math.max(...sweeps);
+    const avgRadius = radii.reduce((a,b) => a+b, 0) / radii.length;
+    const smallCount = arcs.filter(a => a.sweepDegrees < 10).length;
+    const largeCount = arcs.filter(a => a.sweepDegrees > 180).length;
+
+    const radiusVariance = radii.reduce((sum, r) => sum + Math.pow(r - avgRadius, 2), 0) / radii.length;
+    const radiusCV = Math.sqrt(radiusVariance) / (avgRadius || 1);
+
+    return {
+      count: arcs.length,
+      avgSweepDegrees: avgSweep,
+      maxSweepDegrees: maxSweep,
+      avgRadius: avgRadius,
+      radiusCV: radiusCV,
+      smallArcPct: smallCount / arcs.length,
+      largeSweepPct: largeCount / arcs.length
+    };
   }
 
   /**
@@ -183,10 +279,8 @@ class ArcFitter {
     if (!points || points.length < 3) {
       return 'G2'; // default
     }
-    // Find the first intermediate point after start
     let mid = points[1];
     let idx = 1;
-    // Skip if duplicate of start (unlikely)
     while (idx < points.length && mid.x === start.x && mid.y === start.y) {
       idx++;
       if (idx < points.length) mid = points[idx];
@@ -198,8 +292,7 @@ class ArcFitter {
     const bx = mid.x - start.x;
     const by = mid.y - start.y;
     const cross = ax * by - ay * bx;
-    // Standard: cross < 0 => CW (G2), cross > 0 => CCW (G3). But our coordinate system: cross < 0 gives true left turn? Actually after testing, we need cross < 0 to produce CCW direction for these test cases.
-    // Based on geometry: for start->end->mid, negative cross indicates mid is to the right? Let's re-evaluate: Our tests indicate that cross negative should yield G3 (CCW) to include mid point on arc. We'll use that empirically.
+    // Using (end-start) x (mid-start): cross < 0 indicates CCW (G3), cross > 0 indicates CW (G2)
     return cross < 0 ? 'G3' : 'G2';
   }
 
@@ -215,7 +308,6 @@ class ArcFitter {
      for (let i = 1; i < arcs.length; i++) {
        const next = arcs[i];
 
-       // Check if arcs can be merged: same radius, center, and direction
        const sameCenter = Math.abs(current.circle.center.x - next.circle.center.x) < tolerance &&
                          Math.abs(current.circle.center.y - next.circle.center.y) < tolerance;
        const sameRadius = Math.abs(current.circle.radius - next.circle.radius) < tolerance;
@@ -224,7 +316,6 @@ class ArcFitter {
                         Math.abs(current.end.y - next.start.y) < 1e-9;
 
        if (sameCenter && sameRadius && sameDirection && connected) {
-         // Merge: extend current arc to next's end
          current.endState = next.endState;
          current.end = next.end;
          current.sweepDegrees += next.sweepDegrees;
@@ -253,7 +344,6 @@ class ArcFitter {
     let linearsCount = 0;
     let i = 0;
 
-    // Store stats for reporting
     this.originalLineCount = pathData.length;
     this.lastArcs = [];
     this.lastLinearsCount = 0;
@@ -267,7 +357,6 @@ class ArcFitter {
     while (i < pathData.length) {
       const start = pathData[i];
       if (isLinearG(start.cmd)) {
-        // Attempt to fit a window of linear segments
         let j = i + 1;
         let bestArc = null;
         let bestWindowPoints = null;
@@ -276,10 +365,14 @@ class ArcFitter {
         const startState = start.state;
         const startZ = startState.z;
 
+        // Determine effective tolerance: G187 overrides default if tighter
+        const effectiveTolerance = (typeof startState.getEffectiveTolerance === 'function')
+          ? startState.getEffectiveTolerance(this.tolerance)
+          : this.tolerance;
+
         while (j < pathData.length && (j - i) < this.maxSearch) {
           const current = pathData[j];
 
-          // Z axis check unless helix allowed
           if (!allowHelix && current.state.z !== startZ) break;
 
           windowPoints.push({ x: current.state.x, y: current.state.y });
@@ -287,12 +380,11 @@ class ArcFitter {
           if (windowPoints.length >= 3) {
             const circle = ArcFitter.fitCircle(windowPoints);
             const valid = circle && ArcFitter.isArcValid(
-              windowPoints, circle, startState, current.state, this.tolerance
+              windowPoints, circle, startState, current.state, effectiveTolerance
             );
 
             if (valid) {
               const radius = circle.radius;
-              // Enforce Haas radius constraints
               if (radius >= this.minArcRadius && radius <= this.maxArcRadius) {
                 const iVal = circle.center.x - startState.x;
                 const jVal = circle.center.y - startState.y;
@@ -322,7 +414,6 @@ class ArcFitter {
           const gMode = this.determineArcDirection(startState, bestArc.endState, arcWindowPoints);
           const isCCW = (gMode === 'G3');
 
-          // Compute sweep angle for warning
           const startA = Math.atan2(startState.y - bestArc.circle.center.y, startState.x - bestArc.circle.center.x);
           const endA = Math.atan2(bestArc.endState.y - bestArc.circle.center.y, bestArc.endState.x - bestArc.circle.center.x);
           const TWOPI = 2 * Math.PI;
@@ -350,7 +441,8 @@ class ArcFitter {
             direction: gMode,
             sweepDegrees: sweepDegrees,
             originalPoints: arcWindowPoints,
-            feedrate: startState.feedrate
+            feedrate: startState.feedrate,
+            effectiveTolerance: effectiveTolerance
           };
           arcs.push(arcRecord);
           this.lastArcs.push(arcRecord);
@@ -362,7 +454,6 @@ class ArcFitter {
         }
       } else {
         optimized.push(start.raw);
-        // Count non-linear lines that aren't arcs we generated
         if (!start.cmd.G || (start.cmd.G !== 2 && start.cmd.G !== 3)) {
           linearsCount++;
           this.lastLinearsCount++;
@@ -371,27 +462,16 @@ class ArcFitter {
       i++;
     }
 
-     return optimized;
-   }
+    return optimized;
+  }
 
-  /**
-   * Creates a G2 or G3 command string from arc parameters.
-   * Includes Z if it changes from start to end (helical arcs).
-   * @param {Object} start - Start point {x, y, z, feedrate}
-   * @param {Object} end - End point {x, y, z}
-   * @param {Object} circle - Circle {center: {x, y}, radius}
-   * @param {number} precision - Decimal places
-   * @param {string} gMode - 'G2' or 'G3'; if null, determined by cross product
-   * @returns {string} - G-code command
-   */
   createArcCommand(start, end, circle, precision = 4, gMode = null) {
-    // Determine G2 or G3
     let mode = gMode;
     if (!mode) {
       const vSC = { x: circle.center.x - start.x, y: circle.center.y - start.y };
       const vSE = { x: end.x - start.x, y: end.y - start.y };
-      const cross = vSC.x * vSE.y - vSC.y * vSE.x;
-      mode = cross > 0 ? "G3" : "G2";
+       const cross = vSC.x * vSE.y - vSC.y * vSE.x;
+       mode = cross > 0 ? "G3" : "G2";
     }
 
     const iVal = (circle.center.x - start.x).toFixed(precision);
@@ -399,13 +479,11 @@ class ArcFitter {
     const xVal = end.x.toFixed(precision);
     const yVal = end.y.toFixed(precision);
 
-    // Include Z if it changes (helical)
     let zVal = '';
     if (Math.abs(end.z - start.z) > 1e-9) {
       zVal = ' Z' + end.z.toFixed(precision);
     }
 
-    // Include feedrate if available (per spec: preserve feedrate values)
     const fVal = start.feedrate > 0 ? ` F${start.feedrate.toFixed(2)}` : '';
 
     return `${mode} X${xVal} Y${yVal}${zVal} I${iVal} J${jVal}${fVal}`;

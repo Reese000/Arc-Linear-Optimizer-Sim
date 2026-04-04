@@ -1,6 +1,7 @@
 /**
  * Tracks the modal state of the CNC machine during G-code processing.
- * Responsible for handling unit conversions (G20/G21) and absolute/incremental moves (G90/G91).
+ * Handles unit conversions (G20/G21), absolute/incremental moves (G90/G91),
+ * and G187 (Exact Stop/Path Following) tolerance.
  */
 class ToolpathState {
   constructor() {
@@ -11,8 +12,11 @@ class ToolpathState {
     this.isMetric = true; // Default to metric (G21)
     this.isAbsolute = true; // Default to absolute (G90)
     this.modalGroup1 = 'G0'; // Default G-motion group
-    this.unitsPerMm = 1;
     this.precision = 4; // Haas standard decimal places (usually 4 for inch, 3 for metric)
+    // G187 Exact Stop/Path Following tolerance (stored internally in mm)
+    this.g187Enabled = false;
+    this.g187Tolerance = null; // tolerance in mm (after conversion if needed)
+    this.g187P = null; // raw P value in original units (for reference)
   }
 
   updateFromCommand(command) {
@@ -20,7 +24,18 @@ class ToolpathState {
       this.updateModalG(command.G);
     }
 
-    const scale = this.isMetric ? 1 : 25.4; // Internal representation always in MM for consistent math
+    // Handle G187 P parameter (tolerance) if present
+    if (this.g187Enabled && command.P !== undefined) {
+      let pVal = command.P;
+      // P is in current units (inch for G20, mm for G21) - convert to mm for internal
+      if (!this.isMetric) {
+        pVal = pVal * 25.4;
+      }
+      this.g187Tolerance = pVal;
+      this.g187P = command.P;
+    }
+
+    const scale = this.isMetric ? 1 : 25.4; // Internal representation always in MM
 
     if (this.isAbsolute) {
       if (command.X !== undefined) this.x = command.X * scale;
@@ -52,6 +67,16 @@ class ToolpathState {
       }
       if (g === 90) this.isAbsolute = true;
       if (g === 91) this.isAbsolute = false;
+      // G187: Exact Stop/Path Following
+      if (g === 187) {
+        this.g187Enabled = true;
+        // Reset tolerance unless P is provided in the same command
+      }
+      // G188 cancels exact stop on Haas (some controls)
+      if (g === 188) {
+        this.g187Enabled = false;
+        this.g187Tolerance = null;
+      }
     });
   }
 
@@ -63,6 +88,19 @@ class ToolpathState {
     const newState = new ToolpathState();
     Object.assign(newState, this);
     return newState;
+  }
+
+  /**
+   * Gets the effective tolerance for arc fitting, considering G187 if active.
+   * Returns the tighter (smaller) of defaultTolerance and G187 tolerance.
+   * @param {number} defaultTolerance - Optimizer's default tolerance (mm)
+   * @returns {number} - Effective tolerance in mm
+   */
+  getEffectiveTolerance(defaultTolerance) {
+    if (this.g187Enabled && this.g187Tolerance !== null) {
+      return Math.min(defaultTolerance, this.g187Tolerance);
+    }
+    return defaultTolerance;
   }
 }
 

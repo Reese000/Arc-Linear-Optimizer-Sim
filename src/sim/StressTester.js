@@ -38,43 +38,51 @@ class StressTester {
         // Use test-specific constraints if provided, otherwise use default
         const testConstraints = options.constraints || this.constraints;
 
-        // 1. Process degraded G-code
-        const parser = new GCodeParser();
-        const lines = gcode.split('\n');
-        const parsedData = [];
-        for (const line of lines) {
-            const cmd = GCodeParser.parseLine(line);
-            if (cmd) {
-                parser.state.updateFromCommand(cmd);
-                parsedData.push({ raw: line, cmd: cmd, state: parser.state.clone() });
-            }
-        }
+     // 1. Process degraded G-code
+     const parser = new GCodeParser();
+     const lines = gcode.split('\n');
+     const parsedData = [];
+     for (const line of lines) {
+         const cmd = GCodeParser.parseLine(line);
+         if (cmd) {
+             parser.state.updateFromCommand(cmd);
+             parsedData.push({ raw: line, cmd: cmd, state: parser.state.clone() });
+         }
+     }
 
-        // 2. Optimize with constraints
-        const startTime = Date.now();
-        const fitter = new ArcFitter(this.tolerance, testConstraints);
-        const optimized = fitter.optimize(parsedData);
-        const arcs = fitter.lastArcs || [];
-        const endTime = Date.now();
+     // Determine effective tolerance from G187 if present (smaller wins)
+     let effectiveTolerance = this.tolerance;
+     for (const item of parsedData) {
+         if (item.state.g187Enabled && item.state.g187Tolerance !== null) {
+             effectiveTolerance = Math.min(effectiveTolerance, item.state.g187Tolerance);
+         }
+     }
 
-        // 3. Verify each arc and compute overall max deviation
-        const verifier = new Verifier(this.tolerance);
-        let overallMaxDev = 0;
-        let allArcsSafe = true;
+     // 2. Optimize with constraints
+     const startTime = Date.now();
+     const fitter = new ArcFitter(this.tolerance, testConstraints);
+     const optimized = fitter.optimize(parsedData);
+     const arcs = fitter.lastArcs || [];
+     const endTime = Date.now();
 
-        for (const arc of arcs) {
-            const verification = verifier.verify(arc.originalPoints, arc.circle, arc.start, arc.end);
-            if (!verification.isSafe) allArcsSafe = false;
-            if (verification.maxDeviation > overallMaxDev) overallMaxDev = verification.maxDeviation;
-        }
+     // 3. Verify each arc and compute overall max deviation using effective tolerance
+     const verifier = new Verifier(effectiveTolerance);
+     let overallMaxDev = 0;
+     let allArcsSafe = true;
+
+     for (const arc of arcs) {
+         const verification = verifier.verify(arc.originalPoints, arc.circle, arc.start, arc.end);
+         if (!verification.isSafe) allArcsSafe = false;
+         if (verification.maxDeviation > overallMaxDev) overallMaxDev = verification.maxDeviation;
+     }
 
         if (arcs.length === 0) overallMaxDev = 0;
 
-        // 4. Score (with stability)
-        const origCount = parsedData.length;
-        const optCount = optimized.length;
-        const compression = ((1 - optCount / origCount) * 100).toFixed(2);
-        const score = this.calculateScore(origCount, optCount, overallMaxDev, arcs);
+         // 4. Score (with stability) - use effectiveTolerance for accuracy metric
+         const origCount = parsedData.length;
+         const optCount = optimized.length;
+         const compression = ((1 - optCount / origCount) * 100).toFixed(2);
+         const score = this.calculateScore(origCount, optCount, overallMaxDev, arcs, effectiveTolerance);
 
         const result = {
             name,
@@ -100,25 +108,51 @@ class StressTester {
      * @param {Array} arcs - Array of arc records (with sweepDegrees, circle.radius, etc.)
      * @returns {number} - Score 0-100
      */
-    calculateScore(orig, opt, maxDev, arcs = []) {
+    /**
+     * Computes a composite score from compression, accuracy, and stability metrics.
+     * @param {number} orig - Original line count
+     * @param {number} opt - Optimized line count
+     * @param {number} maxDev - Maximum deviation observed
+     * @param {Array} arcs - Array of arc records (with sweepDegrees, circle.radius, etc.)
+     * @param {number} effectiveTolerance - Tolerance actually enforced (mm)
+     * @returns {number} - Score 0-100
+     */
+    calculateScore(orig, opt, maxDev, arcs = [], effectiveTolerance) {
         const compressionWeight = 0.4;
         const accuracyWeight = 0.4;
         const stabilityWeight = 0.2;
 
-        const compressionScore = Math.min(100, (orig / opt) * 20); // Normalized
-        const accuracyScore = Math.max(0, 100 * (1 - maxDev / this.tolerance));
+        const compressionScore = Math.min(100, (orig / opt) * 20);
+        const accuracyScore = Math.max(0, 100 * (1 - maxDev / effectiveTolerance));
 
-        // Compute stability score based on arc characteristics
         let stabilityScore = 100;
         if (arcs.length > 0) {
-            let smallSweepCount = 0; // < 10°
-            let largeSweepCount = 0; // > 180°
+            let smallSweepCount = 0;
+            let largeSweepCount = 0;
             let radii = [];
             for (const a of arcs) {
                 if (a.sweepDegrees < 10) smallSweepCount++;
                 if (a.sweepDegrees > 180) largeSweepCount++;
                 radii.push(a.circle.radius);
             }
+            const pctSmall = smallSweepCount / arcs.length;
+            const pctLarge = largeSweepCount / arcs.length;
+
+            const radiiMean = radii.reduce((a,b) => a+b, 0) / radii.length;
+            const radiusVariance = radii.reduce((sum, r) => sum + Math.pow(r - radiiMean, 2), 0) / radii.length;
+            const cv = Math.sqrt(radiusVariance) / (radiiMean || 1);
+
+            stabilityScore = Math.max(0, 100 - 40 * pctSmall - 20 * pctLarge - 15 * cv);
+        } else {
+            stabilityScore = 80;
+        }
+
+        return Math.round(
+            compressionScore * compressionWeight +
+            accuracyScore * accuracyWeight +
+            stabilityScore * stabilityWeight
+        );
+    }
             const pctSmall = smallSweepCount / arcs.length;
             const pctLarge = largeSweepCount / arcs.length;
 
