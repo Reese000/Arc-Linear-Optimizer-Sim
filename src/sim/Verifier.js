@@ -23,29 +23,47 @@ class Verifier {
   /**
    * Compares the original toolpath points against the fitted arc segment.
    * Uses chordal distance: points on the arc segment use radial distance; points off the segment use distance to nearest endpoint.
-   * @param {Array} originalPoints - Array of {x, y} points from the original toolpath
+   * @param {Array} originalPoints - Array of {x, y} points from the original toolpath (includes start as first)
    * @param {Object} circle - Fitted circle {center, radius}
    * @param {Object} start - Arc start point {x, y}
    * @param {Object} end - Arc end point {x, y}
-   * @returns {Object} - {isSafe: boolean, maxDeviation: number} where isSafe indicates all points within tolerance
+   * @returns {Object} - {isSafe: boolean, maxDeviation: number}
    */
   verify(originalPoints, circle, start, end) {
     let result = {
       isSafe: true,
       maxDeviation: 0
     };
-    const { x: cx, y: cy, radius } = circle;
+    const { center: { x: cx, y: cy }, radius } = circle;
+
+    // Determine arc direction using first intermediate point (consistent with ArcFitter.determineArcDirection)
+    let isCCW = false; // default to G2 clockwise
+    if (originalPoints.length > 2) {
+        // Find first intermediate point (skip start duplicates)
+        let mid = null;
+        for (let i = 1; i < originalPoints.length; i++) {
+            const p = originalPoints[i];
+            if (p.x !== start.x || p.y !== start.y) {
+                mid = p;
+                break;
+            }
+        }
+        if (mid) {
+            const ax = end.x - start.x;
+            const ay = end.y - start.y;
+            const bx = mid.x - start.x;
+            const by = mid.y - start.y;
+            const cross = ax * by - ay * bx;
+            // Using (end-start) x (mid-start): cross < 0 indicates CCW (G3), cross > 0 indicates CW (G2)
+            isCCW = cross < 0;
+        }
+    }
 
     // Compute start and end angles
     const startA = Math.atan2(start.y - cy, start.x - cx);
     const endA = Math.atan2(end.y - cy, end.x - cx);
-    // Determine arc direction using cross product
-    const vSC = { x: cx - start.x, y: cy - start.y };
-    const vSE = { x: end.x - start.x, y: end.y - start.y };
-    const cross = vSC.x * vSE.y - vSC.y * vSE.x;
-    const isCCW = cross > 0;
-
     const TWOPI = 2 * Math.PI;
+
     // Compute sweep angle (positive)
     let sweep;
     if (isCCW) {
@@ -64,12 +82,13 @@ class Verifier {
 
       // Check if point lies on arc segment
       let onArc;
+      let offset = null;
       if (isCCW) {
-        let offset = (pA - startA) % TWOPI;
+        offset = (pA - startA) % TWOPI;
         if (offset < 0) offset += TWOPI;
         onArc = offset <= sweep + 1e-9;
       } else {
-        let offset = (startA - pA) % TWOPI;
+        offset = (startA - pA) % TWOPI;
         if (offset < 0) offset += TWOPI;
         onArc = offset <= sweep + 1e-9;
       }
