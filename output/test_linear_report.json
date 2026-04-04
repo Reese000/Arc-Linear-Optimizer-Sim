@@ -1,0 +1,30 @@
+{
+  "summary": {
+    "originalLineCount": 15,
+    "optimizedLineCount": 4,
+    "arcCount": 1,
+    "linearCount": 3,
+    "reductionPercent": "73.33"
+  },
+  "arcs": [
+    {
+      "start": {
+        "x": 0,
+        "y": 0
+      },
+      "end": {
+        "x": 1,
+        "y": 0.45
+      },
+      "center": {
+        "x": -0.035571681415925926,
+        "y": 1.3849115044247737
+      },
+      "radius": 1.3910711153371809,
+      "direction": "G3",
+      "sweepDegrees": 46.45302791045514,
+      "pointCount": 12,
+      "feedrate": 100
+    }
+  ]
+}
