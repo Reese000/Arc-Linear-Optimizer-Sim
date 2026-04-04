@@ -22,7 +22,11 @@
         .toggle-group { margin-top: 10px; font-size: 0.85rem; display: flex; flex-direction: column; gap: 5px; }
         .toggle-item { display: flex; align-items: center; cursor: pointer; }
         .toggle-item input { margin-right: 10px; }
-        select, input[type="number"] { background: #333; color: #fff; border: 1px solid #555; padding: 5px; width: 100%; border-radius: 4px; border-radius: 4px; margin-bottom: 8px; box-sizing: border-box; }
+        .constraint-group { margin-bottom: 8px; }
+        .constraint-group label { display: block; font-size: 0.8rem; color: #aaa; margin-bottom: 2px; }
+        .constraint-group input[type="number"] { margin-bottom: 0; }
+        select, input[type="number"] { background: #333; color: #fff; border: 1px solid #555; padding: 5px; width: 100%; border-radius: 4px; margin-bottom: 8px; box-sizing: border-box; }
+        .upload-section input[type="file"] { margin: 5px 0; }
         .controls-hint { margin-top: 15px; font-size: 0.8rem; color: #aaa; border-top: 1px solid #444; padding-top: 10px; }
     </style>
 </head>
@@ -36,29 +40,49 @@
                 <div class="stat">Optimized Lines: <span id="opt-count">-</span></div>
                 <div id="compression-msg" style="color: #4caf50; font-weight: bold; margin-top: 10px;"></div>
             </div>
-            <div class="controls">
-            <div class="stat">Path Type:</div>
-            <select id="path-type">
-                <option value="CIRCLE">Circle (Standard)</option>
-                <option value="SPIRAL">Spiral (Continuous)</option>
-                <option value="SCURVE">S-Curve (Inflections)</option>
-                <option value="ZIGZAG">Zig-Zag (Serrated)</option>
-            </select>
-            <div class="stat">Active Seed:</div>
-            <input type="number" id="seed-input" value="123456">
-            <button onclick="regenerate()">Regenerate Toolpath</button>
-            <button onclick="randomizeSeed()" style="background: #555; margin-top: 5px;">Randomize Seed</button>
-        </div>
-            <div class="legend">
-            <div class="legend-item"><div class="color-box ideal-color"></div> Ideal Geometry (Reference)</div>
-            <div class="legend-item"><div class="color-box original-color"></div> Tessellated (Line Soup)</div>
-            <div class="legend-item"><div class="color-box optimized-color"></div> Optimized (Arc-Fitted)</div>
-        </div>
-        <div class="toggle-group">
-            <label class="toggle-item"><input type="checkbox" id="show-ideal" checked onchange="toggleLayer('ideal')"> Show Ideal</label>
-            <label class="toggle-item"><input type="checkbox" id="show-orig" checked onchange="toggleLayer('original')"> Show Tessellated</label>
-            <label class="toggle-item"><input type="checkbox" id="show-opt" checked onchange="toggleLayer('optimized')"> Show Optimized</label>
-        </div>
+             <div class="controls">
+             <div class="stat">Path Type:</div>
+             <select id="path-type">
+                 <option value="CIRCLE">Circle (Standard)</option>
+                 <option value="SPIRAL">Spiral (Continuous)</option>
+                 <option value="SCURVE">S-Curve (Inflections)</option>
+                 <option value="ZIGZAG">Zig-Zag (Serrated)</option>
+             </select>
+             <div class="stat">Active Seed:</div>
+             <input type="number" id="seed-input" value="123456">
+             <button onclick="regenerate()">Regenerate Toolpath</button>
+             <button onclick="randomizeSeed()" style="background: #555; margin-top: 5px;">Randomize Seed</button>
+
+             <div class="stat" style="margin-top: 15px;">Haas Constraints:</div>
+             <div class="constraint-group">
+                 <label style="font-size: 0.85rem;">Tolerance:</label>
+                 <input type="number" id="constraint-tolerance" value="0.001" step="0.0001" min="0">
+             </div>
+             <div class="constraint-group">
+                 <label style="font-size: 0.85rem;">Min Arc Radius:</label>
+                 <input type="number" id="constraint-min-radius" value="0" step="0.1">
+             </div>
+             <div class="constraint-group">
+                 <label style="font-size: 0.85rem;">Max Arc Radius:</label>
+                 <input type="number" id="constraint-max-radius" value="1000" step="1">
+             </div>
+             <div class="constraint-group">
+                 <label style="font-size: 0.85rem;">Max IJK:</label>
+                 <input type="number" id="constraint-max-ijk" value="999.9999" step="0.1">
+             </div>
+             <div class="toggle-group">
+                 <label class="toggle-item"><input type="checkbox" id="constraint-allow-helix"> Allow Helical Arcs</label>
+                 <label class="toggle-item"><input type="checkbox" id="show-ideal" checked onchange="toggleLayer('ideal')"> Show Ideal</label>
+                 <label class="toggle-item"><input type="checkbox" id="show-orig" checked onchange="toggleLayer('original')"> Show Tessellated</label>
+                 <label class="toggle-item"><input type="checkbox" id="show-opt" checked onchange="toggleLayer('optimized')"> Show Optimized</label>
+             </div>
+             <div class="upload-section" style="margin-top: 15px; border-top: 1px solid #444; padding-top: 10px;">
+                 <div class="stat">Upload Custom G-code:</div>
+                 <input type="file" id="file-upload" accept=".nc,.txt" style="font-size: 0.85rem;">
+                 <button onclick="uploadFile()" style="background: #ff9800; margin-top: 5px;">Upload</button>
+                 <div id="upload-status" style="font-size: 0.8rem; margin-top: 5px;"></div>
+             </div>
+         </div>
             <div class="controls-hint">
                 <b>Controls:</b><br>
                 • Orbit: Left-Click + Drag<br>

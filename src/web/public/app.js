@@ -45,26 +45,104 @@ function animate() {
     renderer.render(scene, camera);
 }
 
-async function loadData(seed = 123456) {
+async function loadData(seed = 123456, file = null) {
     const type = document.getElementById('path-type').value;
-    const response = await fetch(`/api/generate?seed=${seed}&type=${type}&tolerance=0.05`);
-    const data = await response.json();
-    
-    document.getElementById('seed-input').value = data.seed;
-    document.getElementById('orig-count').innerText = data.summary.origCount;
-    document.getElementById('opt-count').innerText = data.summary.optCount;
-    
-    const compression = ((1 - data.summary.optCount / data.summary.origCount) * 100).toFixed(1);
-    document.getElementById('compression-msg').innerText = `Reduction: ${compression}%`;
+    const tolerance = document.getElementById('constraint-tolerance').value;
+    const minRadius = document.getElementById('constraint-min-radius').value;
+    const maxRadius = document.getElementById('constraint-max-radius').value;
+    const maxIJK = document.getElementById('constraint-max-ijk').value;
+    const allowHelix = document.getElementById('constraint-allow-helix').checked;
 
-    renderIdeal(data.groundTruth);
-    renderOriginal(data.original);
-    renderOptimized(data.optimizedStrings, data.original[0]);
+    // Show loading indicator
+    const statusEl = document.getElementById('upload-status');
+    if (statusEl) {
+        statusEl.innerHTML = '⏳ Generating...';
+        statusEl.style.color = '#ffeb3b';
+    }
+
+    let url;
+    if (file) {
+        // Use custom file upload - just load it via /api/toolpath?file=<filename>
+        url = `/api/toolpath?file=${encodeURIComponent(file)}&tolerance=${tolerance}&minArcRadius=${minRadius}&maxArcRadius=${maxRadius}&maxIJK=${maxIJK}&allowHelix=${allowHelix}`;
+    } else {
+        url = `/api/generate?seed=${seed}&type=${type}&tolerance=${tolerance}&minArcRadius=${minRadius}&maxArcRadius=${maxRadius}&maxIJK=${maxIJK}&allowHelix=${allowHelix}`;
+    }
+
+    try {
+        const response = await fetch(url);
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+            throw new Error(data.error || 'Failed to load data');
+        }
+
+        const payload = data.data;
+        document.getElementById('seed-input').value = payload.seed || seed;
+        document.getElementById('orig-count').innerText = payload.summary.origCount;
+        document.getElementById('opt-count').innerText = payload.summary.optCount;
+
+        const compression = ((1 - payload.summary.optCount / payload.summary.origCount) * 100).toFixed(1);
+        document.getElementById('compression-msg').innerText = `Reduction: ${compression}%`;
+
+    if (payload.groundTruth) {
+        renderIdeal(payload.groundTruth);
+    } else {
+        // No ideal geometry available (e.g., custom file upload); hide ideal layer
+        if (idealPath) idealPath.visible = false;
+        document.getElementById('show-ideal').checked = false;
+    }
+    renderOriginal(payload.original);
+    renderOptimized(payload.optimizedStrings, payload.original[0]);
+
+        if (statusEl) {
+            statusEl.innerHTML = '✅ Done!';
+            statusEl.style.color = '#4caf50';
+            setTimeout(() => { statusEl.innerHTML = ''; }, 2000);
+        }
+    } catch (err) {
+        console.error('Load error:', err);
+        if (statusEl) {
+            statusEl.innerHTML = `❌ ${err.message}`;
+            statusEl.style.color = '#f44336';
+        }
+        alert(`Error: ${err.message}`);
+    }
 }
 
 function regenerate() {
     const seed = document.getElementById('seed-input').value;
     loadData(seed);
+}
+
+async function uploadFile() {
+    const fileInput = document.getElementById('file-upload');
+    const file = fileInput.files[0];
+    if (!file) {
+        alert('Please select a file to upload.');
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+        const response = await fetch('/api/upload', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+            throw new Error(data.error || 'Upload failed');
+        }
+
+        // Load the uploaded file
+        await loadData(null, data.data.filename);
+
+    } catch (err) {
+        console.error('Upload error:', err);
+        alert(`Upload failed: ${err.message}`);
+    }
 }
 
 function toggleLayer(type) {
@@ -102,29 +180,36 @@ function renderOriginal(segments) {
 
 function renderOptimized(strings, startPoint) {
     if (optimizedPath) scene.remove(optimizedPath);
-    
+
     const points = [];
     let current = startPoint;
 
     strings.forEach(line => {
         if (line.startsWith('G2') || line.startsWith('G3')) {
-            const match = line.match(/(G[23]) X([-+]?\d*\.?\d+) Y([-+]?\d*\.?\d+) I([-+]?\d*\.?\d+) J([-+]?\d*\.?\d+)/);
+            // Match G2/G3 with optional Z and F
+            const match = line.match(/(G[23])\s+X([-+]?\d*\.?\d+)\s+Y([-+]?\d*\.?\d+)(?:\s+Z([-+]?\d*\.?\d+))?\s+I([-+]?\d*\.?\d+)\s+J([-+]?\d*\.?\d+)(?:\s+F([\d.]+))?/);
             if (match) {
-                const [_, mode, x, y, i, j] = match;
-                const end = { x: parseFloat(x), y: parseFloat(y), z: current.z };
+                const [_, mode, x, y, zVal, i, j] = match;
+                const end = {
+                    x: parseFloat(x),
+                    y: parseFloat(y),
+                    z: zVal !== undefined ? parseFloat(zVal) : current.z
+                };
                 const center = { x: current.x + parseFloat(i), y: current.y + parseFloat(j) };
-                const segments = arcToSegments(current, end, center, mode === 'G3');
+                const isCCW = mode === 'G3';
+                const segments = arcToSegments(current, end, center, isCCW, 0.001);
                 points.push(...segments);
-                current = end;
+                current = end; // Update current Z for subsequent moves
             }
         } else if (line.indexOf('X') !== -1 || line.indexOf('Y') !== -1) {
             // Very basic line parser for optimization report strings
             const xMatch = line.match(/X([-+]?\d*\.?\d+)/);
             const yMatch = line.match(/Y([-+]?\d*\.?\d+)/);
-            const next = { 
-                x: xMatch ? parseFloat(xMatch[1]) : current.x, 
-                y: yMatch ? parseFloat(yMatch[1]) : current.y, 
-                z: current.z 
+            const zMatch = line.match(/Z([-+]?\d*\.?\d+)/);
+            const next = {
+                x: xMatch ? parseFloat(xMatch[1]) : current.x,
+                y: yMatch ? parseFloat(yMatch[1]) : current.y,
+                z: zMatch ? parseFloat(zMatch[1]) : current.z
             };
             points.push(new THREE.Vector3(next.x, next.y, next.z));
             current = next;
@@ -139,7 +224,7 @@ function renderOptimized(strings, startPoint) {
     scene.add(optimizedPath);
 }
 
-function arcToSegments(start, end, center, isCCW) {
+function arcToSegments(start, end, center, isCCW, tolerance = 0.001) {
     const points = [];
     const radius = Math.sqrt(Math.pow(start.x - center.x, 2) + Math.pow(start.y - center.y, 2));
     let startAngle = Math.atan2(start.y - center.y, start.x - center.x);
@@ -148,16 +233,36 @@ function arcToSegments(start, end, center, isCCW) {
     if (!isCCW && startAngle < endAngle) startAngle += 2 * Math.PI;
     if (isCCW && endAngle < startAngle) endAngle += 2 * Math.PI;
 
-    const angleDiff = endAngle - startAngle;
-    const steps = 30;
+    let angleDiff = endAngle - startAngle;
+    const TWOPI = 2 * Math.PI;
+    if (angleDiff < 0) angleDiff += TWOPI;
 
-    for (let i = 0; i <= steps; i++) {
-        const theta = startAngle + (angleDiff * (i / steps));
-        points.push(new THREE.Vector3(
-            center.x + radius * Math.cos(theta),
-            center.y + radius * Math.sin(theta),
-            start.z
-        ));
+    // Adaptive tessellation: ensure chordal error ≤ tolerance
+    let stepAngle;
+    if (radius > 0) {
+        const maxStepAngle = 2 * Math.sqrt(2 * tolerance / radius);
+        const numSteps = Math.max(3, Math.ceil(angleDiff / maxStepAngle));
+        stepAngle = angleDiff / numSteps;
+    } else {
+        stepAngle = angleDiff / 30; // fallback
+    }
+
+    const numSteps = Math.ceil(angleDiff / stepAngle);
+
+    // Helical: interpolate Z linearly
+    const zStart = start.z;
+    const zEnd = end.z;
+    const hasZChange = Math.abs(zEnd - zStart) > 1e-9;
+
+    for (let i = 0; i <= numSteps; i++) {
+        const theta = startAngle + (stepAngle * i);
+        const x = center.x + radius * Math.cos(theta);
+        const y = center.y + radius * Math.sin(theta);
+        let z = zStart;
+        if (hasZChange) {
+            z = zStart + (zEnd - zStart) * (i / numSteps);
+        }
+        points.push(new THREE.Vector3(x, y, z));
     }
     return points;
 }
@@ -166,6 +271,7 @@ window.loadData = loadData;
 window.regenerate = regenerate;
 window.randomizeSeed = randomizeSeed;
 window.toggleLayer = toggleLayer;
+window.uploadFile = uploadFile;
 
 init();
 loadData(123456);

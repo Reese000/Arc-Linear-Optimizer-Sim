@@ -9,6 +9,12 @@ class TestCaseGenerator {
 
   /**
    * Generates a circular toolpath as a series of G1 segments.
+   * @param {number} centerX - Circle center X
+   * @param {number} centerY - Circle center Y
+   * @param {number} radius - Circle radius
+   * @param {number} segments - Number of line segments to approximate the circle
+   * @param {Object} options - {seed, jitter, driftAmplitude, driftFrequency, stepJitter, z}
+   * @returns {Object} - {groundTruth, degraded, gcode}
    */
   generateCircle(centerX, centerY, radius, segments, options = {}) {
     const points = [];
@@ -25,6 +31,14 @@ class TestCaseGenerator {
 
   /**
    * Generates an Archimedean spiral.
+   * @param {number} centerX
+   * @param {number} centerY
+   * @param {number} startRadius
+   * @param {number} endRadius
+   * @param {number} turns - Number of spiral turns
+   * @param {number} segments - Number of points
+   * @param {Object} options
+   * @returns {Object}
    */
   generateSpiral(centerX, centerY, startRadius, endRadius, turns, segments, options = {}) {
     const points = [];
@@ -44,14 +58,15 @@ class TestCaseGenerator {
 
   /**
    * Generates a sinusoidal S-Curve path.
-   * @param {Object} options - {length, amplitude, wavelength, segments}
+   * @param {Object} options - {length, amplitude, wavelength, segments, seed, jitter}
+   * @returns {Object}
    */
   generateSCurve(options = {}) {
     const length = options.length || 50;
     const amplitude = options.amplitude || 5;
     const wavelength = options.wavelength || 25;
     const segments = options.segments || 200;
-    
+
     let groundTruth = [];
     for (let i = 0; i <= segments; i++) {
         const x = (i / segments) * length;
@@ -63,13 +78,14 @@ class TestCaseGenerator {
 
   /**
    * Generates a "Zig-Zag" serrated path (Line String).
-   * @param {Object} options - {length, width, count}
+   * @param {Object} options - {length, width, count, seed, jitter}
+   * @returns {Object}
    */
   generateZigZag(options = {}) {
     const length = options.length || 50;
     const width = options.width || 5;
     const count = options.count || 20;
-    
+
     let groundTruth = [];
     for (let i = 0; i <= count * 2; i++) {
         const x = (i / (count * 2)) * length;
@@ -94,17 +110,21 @@ class TestCaseGenerator {
 
   /**
    * Applies realistic degradation to a set of high-res points.
+   * Includes jitter (high-frequency noise), drift (low-frequency bias), rounding, and step variation.
+   * @param {Array} points - Array of {x, y, z}
+   * @param {Object} options - {seed, jitter, driftAmplitude, driftFrequency, stepJitter}
+   * @returns {Object} - {groundTruth, degraded, gcode}
    */
   applyDegradation(points, options = {}) {
     let degraded = [];
-    
+
     // Simple seedable RNG (LCG)
     let seedValue = options.seed || Math.floor(Math.random() * 1000000);
     const random = () => {
         seedValue = (seedValue * 1664525 + 1013904223) % 4294967296;
         return seedValue / 4294967296;
     };
-    
+
     // Non-uniform jitter params (Vibration vs Drift)
     const driftAmp = options.driftAmplitude || 0;
     const driftFreq = options.driftFrequency || 0.05;
@@ -131,7 +151,7 @@ class TestCaseGenerator {
 
         // 3. Step Variation (Thinning the data randomly)
         if (options.stepJitter && i > 0 && i < points.length - 1) {
-            if (Math.random() < options.stepJitter) continue; 
+            if (Math.random() < options.stepJitter) continue;
         }
 
         degraded.push(newP);
@@ -144,6 +164,11 @@ class TestCaseGenerator {
     };
   }
 
+  /**
+   * Converts an array of points to G-code (G21, G90, G0 to start, then G1 moves).
+   * @param {Array} points - Array of {x, y, z}
+   * @returns {string} - G-code string
+   */
   pointsToGcode(points) {
     const lines = ["G21", "G90", "F1000", "G0 X" + points[0].x + " Y" + points[0].y];
     for (let i = 1; i < points.length; i++) {

@@ -1,64 +1,111 @@
 const StressTester = require('./src/sim/StressTester');
-const TestCaseGenerator = require('./src/sim/TestCaseGenerator');
 const chalk = require('chalk');
+const fs = require('fs');
+const path = require('path');
 
 /**
  * CLI Entry Point for Automated Stress Testing & Scoring.
+ * Usage:
+ *   node stress_test.js [--all] [--parallel N] [--export json|csv|html] [--regression] [--golden FILE] [--generate-golden]
  */
 async function main() {
+    const args = process.argv.slice(2);
+    const parallel = parseInt(args.find(a => a.startsWith('--parallel='))?.split('=')[1]) || 4;
+    const exportFormat = args.includes('--export') ? (args.find(a => a.startsWith('--export='))?.split('=')[1] || 'json') : null;
+    const regression = args.includes('--regression');
+    const generateGolden = args.includes('--generate-golden');
+    const goldenPath = args.find(a => a.startsWith('--golden='))?.split('=')[1] || path.join(__dirname, 'golden.json');
+
     const tester = new StressTester(0.001);
-    const generator = new TestCaseGenerator();
 
-    console.log(chalk.bold.blue("\n🚀 INITIALIZING AUTOMATED STRESS TEST SUITE...\n"));
+    // Progress callback
+    const onProgress = (completed, total) => {
+        // Could also emit events, but just log
+        console.log(chalk.gray(`Progress: ${completed}/${total} tests completed`));
+    };
 
-    // Case 1: Clean High-Res Circle (Ideal Scenario)
-    await tester.runTest("Clean Circle", () => 
-        generator.generateCircle(0, 0, 10, 100, { jitter: 0 })
-    );
+    // Run the full modular test suite
+    console.log(chalk.bold.blue("\n🚀 INITIALIZING STRESS TEST SUITE...\n"));
+    await tester.runAllTests(parallel, onProgress);
 
-    // Case 2: Low-Resolution Faceted Arc (CAM Edge Case)
-    await tester.runTest("Low-Res Faceted", () => 
-        generator.generateCircle(10, 10, 5, 8, { jitter: 0 })
-    );
-
-    // Case 3: High-Density Jittered Spiral (Precision Stress)
-    await tester.runTest("Jittered Spiral", () => 
-        generator.generateSpiral(0, 0, 1, 10, 3, 500, { jitter: 0.0002 })
-    );
-
-    // Case 4: Irregular Point Spacing (Data Starvation simulation)
-    await tester.runTest("Irregular Spacing", () => 
-        generator.generateCircle(0, 0, 20, 200, { stepJitter: 0.2 })
-    );
-
-    // Case 5: Micro-Step Data (Buffer Overload simulation)
-    await tester.runTest("Micro-Step Arc", () => 
-        generator.generateCircle(5, 5, 2, 500, { jitter: 0.0001 })
-    );
-
-    // Case 6: Inflecting S-Curve (Direction Changes)
-    await tester.runTest("S-Curve Transitions", () =>
-        generator.generateSCurve({ length: 100, amplitude: 10, wavelength: 50, segments: 400, jitter: 0.001 })
-    );
-
-    // Case 7: Serrated Zig-Zag (Non-Arc Geometry Rejection)
-    await tester.runTest("Serrated Zig-Zag", () =>
-        generator.generateZigZag({ length: 50, width: 5, count: 20, jitter: 0 })
-    );
-
-    // Case 8: Sensor Drift (Low-frequency sinusoidal error)
-    await tester.runTest("Low-Freq Sensor Drift", () =>
-        generator.generateCircle(0, 0, 15, 300, { driftAmplitude: 0.005, driftFrequency: 0.1 })
-    );
-
-    // Case 9: Compound Noise (Vibration + Drift + Micro-steps)
-    await tester.runTest("Compound Noise Hell", () =>
-        generator.generateSpiral(0, 0, 5, 20, 5, 1000, { jitter: 0.002, driftAmplitude: 0.01, driftFrequency: 0.05 })
-    );
-
+    // Print report to console
     tester.printReport();
+
+    // Regression mode
+    if (regression) {
+        if (!fs.existsSync(goldenPath)) {
+            console.error(chalk.red(`Golden file not found: ${goldenPath}`));
+            process.exit(1);
+        }
+        const goldenData = JSON.parse(fs.readFileSync(goldenPath, 'utf8'));
+        // Compare current results with golden
+        const goldenMap = new Map(goldenData.results.map(r => [r.name, r]));
+        let passed = 0, failed = 0;
+        console.log(chalk.cyan("\n--- REGRESSION TESTING ---"));
+        for (const result of tester.results) {
+            const golden = goldenMap.get(result.name);
+            if (!golden) {
+                console.log(chalk.yellow(`⊘ ${result.name}: no golden data`));
+                continue;
+            }
+            const scoreDiff = Math.abs(result.score - golden.score);
+            const compDiff = Math.abs(parseFloat(result.compression) - parseFloat(golden.compression));
+            const arcsDiff = result.arcsGenerated - golden.arcsGenerated;
+            const runtimeDiff = result.runtime - golden.runtime;
+
+            const scoreThresh = 5;
+            const compThresh = 1.0;
+            const runtimeThreshPct = 0.2;
+
+            let isOk = true;
+            let reasons = [];
+            if (scoreDiff > scoreThresh) { isOk = false; reasons.push(`Score diff ${scoreDiff}`); }
+            if (compDiff > compThresh) { isOk = false; reasons.push(`Compression diff ${compDiff.toFixed(2)}%`); }
+            if (arcsDiff !== 0) { isOk = false; reasons.push(`Arcs count diff ${arcsDiff}`); }
+            if (golden.runtime > 0 && (result.runtime / golden.runtime - 1) > runtimeThreshPct) { isOk = false; reasons.push(`Runtime +${((result.runtime/golden.runtime-1)*100).toFixed(1)}%`); }
+
+            if (isOk) {
+                passed++;
+                console.log(chalk.green(`✓ ${result.name}`));
+            } else {
+                failed++;
+                console.log(chalk.red(`✗ ${result.name}: ${reasons.join(', ')}`));
+            }
+        }
+        console.log(chalk.cyan(`\nRegression: ${passed} passed, ${failed} failed`));
+        process.exit(failed === 0 ? 0 : 1);
+        return;
+    }
+
+    // Generate golden baseline
+    if (generateGolden) {
+        fs.writeFileSync(goldenPath, JSON.stringify({
+            meta: {
+                tolerance: tester.tolerance,
+                timestamp: new Date().toISOString(),
+                suite: tester.getTestSuite().map(t => t.name)
+            },
+            results: tester.results
+        }, null, 2));
+        console.log(chalk.green(`\n✅ Golden baseline saved to ${goldenPath}`));
+    }
+
+    // Export reports
+    if (exportFormat) {
+        const timestamp = new Date().toISOString().replace(/[:]/g, '-').substring(0, 19);
+        if (exportFormat === 'json' || exportFormat === 'all') {
+            tester.exportJSON(path.join(__dirname, `report-${timestamp}.json`));
+        }
+        if (exportFormat === 'csv' || exportFormat === 'all') {
+            tester.exportCSV(path.join(__dirname, `report-${timestamp}.csv`));
+        }
+        if (exportFormat === 'html' || exportFormat === 'all') {
+            tester.exportHTML(path.join(__dirname, `report-${timestamp}.html`));
+        }
+    }
 }
 
 main().catch(err => {
     console.error(chalk.red("\n❌ Stress Test Failed: " + err.message));
+    process.exit(1);
 });
