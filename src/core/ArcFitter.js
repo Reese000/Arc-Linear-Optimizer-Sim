@@ -62,6 +62,7 @@ class ArcFitter {
    */
    optimize(pathData) {
      const optimized = [];
+     const arcs = [];
      let i = 0;
 
      const isLinearG = (cmd) => {
@@ -100,18 +101,28 @@ class ArcFitter {
           j++;
         }
 
-        if (bestArc && bestArc.length > 2) {
-          // Replace linear segments with an arc
-          optimized.push(this.createArcCommand(start.state, bestArc.endState, bestArc.circle));
-          i += (bestArc.length - 1);
-        } else {
-          optimized.push(pathData[i].raw);
-        }
+         if (bestArc && bestArc.length > 2) {
+           // Replace linear segments with an arc
+           const arcWindowPoints = windowPoints.slice(0, bestArc.length);
+           const arcCmd = this.createArcCommand(start.state, bestArc.endState, bestArc.circle);
+           optimized.push(arcCmd);
+           arcs.push({
+             command: arcCmd,
+             start: start.state,
+             end: bestArc.endState,
+             circle: bestArc.circle,
+             originalPoints: arcWindowPoints
+           });
+           i += (bestArc.length - 1);
+         } else {
+           optimized.push(pathData[i].raw);
+         }
       } else {
         optimized.push(pathData[i].raw);
       }
       i++;
     }
+    this.lastArcs = arcs;
     return optimized;
   }
 

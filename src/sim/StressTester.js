@@ -31,12 +31,11 @@ class StressTester {
          }
      }
 
-     // 2. Optimize
-     const startTime = Date.now();
-     const result = this.fitter.optimize(parsedData);
-     const optimized = result.lines;
-     const arcs = result.arcs || [];
-     const endTime = Date.now();
+      // 2. Optimize
+      const startTime = Date.now();
+      const optimized = this.fitter.optimize(parsedData);
+      const arcs = this.fitter.lastArcs || [];
+      const endTime = Date.now();
 
      // 3. Verify each arc and compute overall max deviation
      const verifier = new Verifier(this.tolerance);
