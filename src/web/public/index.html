@@ -70,12 +70,13 @@
                  <label style="font-size: 0.85rem;">Max IJK:</label>
                  <input type="number" id="constraint-max-ijk" value="999.9999" step="0.1">
              </div>
-             <div class="toggle-group">
-                 <label class="toggle-item"><input type="checkbox" id="constraint-allow-helix"> Allow Helical Arcs</label>
-                 <label class="toggle-item"><input type="checkbox" id="show-ideal" checked onchange="toggleLayer('ideal')"> Show Ideal</label>
-                 <label class="toggle-item"><input type="checkbox" id="show-orig" checked onchange="toggleLayer('original')"> Show Tessellated</label>
-                 <label class="toggle-item"><input type="checkbox" id="show-opt" checked onchange="toggleLayer('optimized')"> Show Optimized</label>
-             </div>
+              <div class="toggle-group">
+                  <label class="toggle-item"><input type="checkbox" id="constraint-allow-helix"> Allow Helical Arcs</label>
+                  <label class="toggle-item"><input type="checkbox" id="constraint-ransac"> RANSAC Robust Fitting</label>
+                  <label class="toggle-item"><input type="checkbox" id="show-ideal" checked onchange="toggleLayer('ideal')"> Show Ideal</label>
+                  <label class="toggle-item"><input type="checkbox" id="show-orig" checked onchange="toggleLayer('original')"> Show Tessellated</label>
+                  <label class="toggle-item"><input type="checkbox" id="show-opt" checked onchange="toggleLayer('optimized')"> Show Optimized</label>
+              </div>
              <div class="upload-section" style="margin-top: 15px; border-top: 1px solid #444; padding-top: 10px;">
                  <div class="stat">Upload Custom G-code:</div>
                  <input type="file" id="file-upload" accept=".nc,.txt" style="font-size: 0.85rem;">

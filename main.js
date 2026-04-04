@@ -25,7 +25,7 @@ async function main() {
   const argv = yargsParser(rawArgs, {
     boolean: [
       'help', 'verbose', 'report', 'allow-helix', 'modal-suppression', 'skip-errors',
-      'bidirectional'
+      'bidirectional', 'ransac'
     ],
     number: [
       'tolerance', 'min-radius', 'max-radius', 'max-ijk', 'precision'
@@ -39,7 +39,8 @@ async function main() {
       'max-radius': Infinity,
       'max-ijk': Infinity,
       'report-format': 'json',
-      precision: null
+      precision: null,
+      ransac: false
     },
     alias: {
       i: 'input',
@@ -70,10 +71,11 @@ ${chalk.yellow('Haas Constraints:')}
   --max-radius         Maximum arc radius allowed (default: Infinity)
   --max-ijk            Maximum IJK magnitude (default: Infinity)
 
-${chalk.yellow('Algorithm Options:')}
-  --bidirectional      Search backward and forward to maximize arc length
-  --allow-helix        Allow helical arcs (Z changes during arcs) (default: false)
-  --modal-suppression  Suppress redundant modal codes in output (default: false)
+ ${chalk.yellow('Algorithm Options:')}
+   --bidirectional      Search backward and forward to maximize arc length
+   --allow-helix        Allow helical arcs (Z changes during arcs) (default: false)
+   --modal-suppression  Suppress redundant modal codes in output (default: false)
+   --ransac             Enable RANSAC robust circle fitting for outlier rejection (default: false)
 
 ${chalk.yellow('Output:')}
   --output-dir, -o     Output directory (default: ./output)
@@ -123,7 +125,8 @@ async function processFile(argv) {
     maxIJK: argv['max-ijk'],
     allowHelix: argv['allow-helix'],
     modalSuppression: argv['modal-suppression'],
-    bidirectional: argv['bidirectional']
+    bidirectional: argv['bidirectional'],
+    ransac: argv['ransac'] || false
   });
 
   const outputFile = path.join(outputDir, `${path.basename(inputFile, '.nc')}_optimized.nc`);
@@ -200,7 +203,11 @@ async function processFile(argv) {
   const fitter = new ArcFitter(argv.tolerance, {
     minArcRadius: argv['min-radius'],
     maxArcRadius: argv['max-radius'],
-    maxIJK: argv['max-ijk']
+    maxIJK: argv['max-ijk'],
+    allowHelix: argv['allow-helix'],
+    modalSuppression: argv['modal-suppression'],
+    bidirectional: argv['bidirectional'],
+    ransac: argv['ransac'] || false
   });
 
   let successCount = 0;

@@ -80,7 +80,8 @@ app.get('/api/toolpath', async (req, res) => {
             minArcRadius: parseFloat(req.query.minArcRadius) || 0,
             maxArcRadius: parseFloat(req.query.maxArcRadius) || Infinity,
             maxIJK: parseFloat(req.query.maxIJK) || Infinity,
-            allowHelix: req.query.allowHelix === 'true'
+            allowHelix: req.query.allowHelix === 'true',
+            ransac: req.query.ransac === 'true'
         };
 
         const parser = new GCodeParser();
@@ -132,13 +133,14 @@ app.get('/api/generate', async (req, res) => {
     const tolerance = parseFloat(req.query.tolerance) || 0.05;
     const type = (req.query.type || 'CIRCLE').toUpperCase();
 
-    // Haas constraints from query params
-    const constraints = {
-        minArcRadius: parseFloat(req.query.minArcRadius) || 0,
-        maxArcRadius: parseFloat(req.query.maxArcRadius) || Infinity,
-        maxIJK: parseFloat(req.query.maxIJK) || Infinity,
-        allowHelix: req.query.allowHelix === 'true'
-    };
+     // Haas constraints from query params
+     const constraints = {
+         minArcRadius: parseFloat(req.query.minArcRadius) || 0,
+         maxArcRadius: parseFloat(req.query.maxArcRadius) || Infinity,
+         maxIJK: parseFloat(req.query.maxIJK) || Infinity,
+         allowHelix: req.query.allowHelix === 'true',
+         ransac: req.query.ransac === 'true'
+     };
 
     try {
         let result;

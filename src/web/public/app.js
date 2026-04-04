@@ -52,6 +52,7 @@ async function loadData(seed = 123456, file = null) {
     const maxRadius = document.getElementById('constraint-max-radius').value;
     const maxIJK = document.getElementById('constraint-max-ijk').value;
     const allowHelix = document.getElementById('constraint-allow-helix').checked;
+    const ransac = document.getElementById('constraint-ransac').checked;
 
     // Show loading indicator
     const statusEl = document.getElementById('upload-status');
@@ -62,10 +63,9 @@ async function loadData(seed = 123456, file = null) {
 
     let url;
     if (file) {
-        // Use custom file upload - just load it via /api/toolpath?file=<filename>
-        url = `/api/toolpath?file=${encodeURIComponent(file)}&tolerance=${tolerance}&minArcRadius=${minRadius}&maxArcRadius=${maxRadius}&maxIJK=${maxIJK}&allowHelix=${allowHelix}`;
+        url = `/api/toolpath?file=${encodeURIComponent(file)}&tolerance=${tolerance}&minArcRadius=${minRadius}&maxArcRadius=${maxRadius}&maxIJK=${maxIJK}&allowHelix=${allowHelix}&ransac=${ransac}`;
     } else {
-        url = `/api/generate?seed=${seed}&type=${type}&tolerance=${tolerance}&minArcRadius=${minRadius}&maxArcRadius=${maxRadius}&maxIJK=${maxIJK}&allowHelix=${allowHelix}`;
+        url = `/api/generate?seed=${seed}&type=${type}&tolerance=${tolerance}&minArcRadius=${minRadius}&maxArcRadius=${maxRadius}&maxIJK=${maxIJK}&allowHelix=${allowHelix}&ransac=${ransac}`;
     }
 
     try {

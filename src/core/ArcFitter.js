@@ -29,6 +29,7 @@ class ArcFitter {
     this.modalSuppression = options.modalSuppression || false;
     this.bidirectional = options.bidirectional || false;
     this.maxSearch = options.maxSearch || 50;
+    this.useRANSAC = options.ransac || false; // RANSAC robust fitting
   }
 
   /**
@@ -378,7 +379,10 @@ class ArcFitter {
           windowPoints.push({ x: current.state.x, y: current.state.y });
 
           if (windowPoints.length >= 3) {
-            const circle = ArcFitter.fitCircle(windowPoints);
+            // Use RANSAC if enabled, otherwise standard fit
+            const circle = this.useRANSAC
+              ? ArcFitter.fitCircleRANSAC(windowPoints, this.tolerance)
+              : ArcFitter.fitCircle(windowPoints);
             const valid = circle && ArcFitter.isArcValid(
               windowPoints, circle, startState, current.state, effectiveTolerance
             );
