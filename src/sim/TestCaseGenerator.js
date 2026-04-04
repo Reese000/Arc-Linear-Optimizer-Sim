@@ -33,13 +33,13 @@ class TestCaseGenerator {
         const fraction = i / segments;
         const theta = fraction * totalTheta;
         const radius = startRadius + (endRadius - startRadius) * fraction;
-        groundTruth.push({
+        points.push({
             x: centerX + radius * Math.cos(theta),
             y: centerY + radius * Math.sin(theta),
             z: options.z || 0
         });
     }
-    return this.applyDegradation(groundTruth, options);
+    return this.applyDegradation(points, options);
   }
 
   /**

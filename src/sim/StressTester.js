@@ -16,50 +16,63 @@ class StressTester {
     this.results = [];
   }
 
-  async runTest(name, generatorFn, options = {}) {
-    const { degraded, gcode } = generatorFn();
-    
-    // 1. Process degraded G-code
-    const parser = new GCodeParser();
-    const lines = gcode.split('\n');
-    const parsedData = [];
-    for (const line of lines) {
-        const cmd = GCodeParser.parseLine(line);
-        if (cmd) {
-            parser.state.updateFromCommand(cmd);
-            parsedData.push({ raw: line, cmd: cmd, state: parser.state.clone() });
-        }
-    }
+   async runTest(name, generatorFn, options = {}) {
+     const { degraded, gcode } = generatorFn();
+     
+     // 1. Process degraded G-code
+     const parser = new GCodeParser();
+     const lines = gcode.split('\n');
+     const parsedData = [];
+     for (const line of lines) {
+         const cmd = GCodeParser.parseLine(line);
+         if (cmd) {
+             parser.state.updateFromCommand(cmd);
+             parsedData.push({ raw: line, cmd: cmd, state: parser.state.clone() });
+         }
+     }
 
-    // 2. Optimize
-    const startTime = Date.now();
-    const optimized = this.fitter.optimize(parsedData);
-    const endTime = Date.now();
+     // 2. Optimize
+     const startTime = Date.now();
+     const result = this.fitter.optimize(parsedData);
+     const optimized = result.lines;
+     const arcs = result.arcs || [];
+     const endTime = Date.now();
 
-    // 3. Verify & Score
-    const origCount = parsedData.length;
-    const optCount = optimized.length;
-    const compression = ((1 - optCount / origCount) * 100).toFixed(2);
-    
-    // Detailed accuracy check
-    const verifier = new Verifier(this.tolerance);
-    // (Simplification: In a full test, we'd verify every generated arc)
-    // For now, tracking the overall compression and runtime.
+     // 3. Verify each arc and compute overall max deviation
+     const verifier = new Verifier(this.tolerance);
+     let overallMaxDev = 0;
+     let allArcsSafe = true;
+     
+     for (const arc of arcs) {
+       const verification = verifier.verify(arc.originalPoints, arc.circle, arc.start, arc.end);
+       if (!verification.isSafe) allArcsSafe = false;
+       if (verification.maxDeviation > overallMaxDev) overallMaxDev = verification.maxDeviation;
+     }
+     
+     // If no arcs, deviation is 0 (perfect match)
+     if (arcs.length === 0) overallMaxDev = 0;
 
-    const score = this.calculateScore(origCount, optCount, 0.0001); // (Assuming high accuracy for now)
+     // 4. Score
+     const origCount = parsedData.length;
+     const optCount = optimized.length;
+     const compression = ((1 - optCount / origCount) * 100).toFixed(2);
+     const score = this.calculateScore(origCount, optCount, overallMaxDev);
 
-    const result = {
-        name,
-        origCount,
-        optCount,
-        compression,
-        runtime: endTime - startTime,
-        score
-    };
+     const result = {
+         name,
+         origCount,
+         optCount,
+         compression,
+         runtime: endTime - startTime,
+         score,
+         maxDeviation: overallMaxDev,
+         arcsGenerated: arcs.length,
+         allArcsSafe: allArcsSafe
+     };
 
-    this.results.push(result);
-    return result;
-  }
+     this.results.push(result);
+     return result;
+   }
 
   calculateScore(orig, opt, maxDev) {
     const compressionWeight = 0.4;

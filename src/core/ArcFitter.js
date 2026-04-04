@@ -60,19 +60,25 @@ class ArcFitter {
   /**
    * Optimizes a sequence of toolpath states.
    */
-  optimize(pathData) {
-    const optimized = [];
-    let i = 0;
+   optimize(pathData) {
+     const optimized = [];
+     let i = 0;
 
-    while (i < pathData.length) {
-      const start = pathData[i];
-      if (start.cmd.G && (start.cmd.G.includes(1))) {
+     const isLinearG = (cmd) => {
+       if (!cmd.G) return false;
+       if (Array.isArray(cmd.G)) return cmd.G.includes(1);
+       return cmd.G === 1;
+     };
+
+     while (i < pathData.length) {
+       const start = pathData[i];
+       if (isLinearG(start.cmd)) {
         // Attempt to fit a window of linear segments
         let j = i + 1;
         let bestArc = null;
         let windowPoints = [{ x: start.state.x, y: start.state.y }];
 
-        while (j < pathData.length && pathData[j].cmd.G && pathData[j].cmd.G.includes(1)) {
+        while (j < pathData.length && isLinearG(pathData[j].cmd)) {
           // Prevent fitting if Z changes (strictly XY arcs for now)
           if (pathData[j].state.z !== start.state.z) break;
 

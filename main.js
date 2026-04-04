@@ -36,10 +36,10 @@ async function main() {
     const parsedData = await parser.parseFile(inputFile);
     console.log(chalk.green(`Successfully parsed ${parsedData.length} G-code lines.`));
 
-    const optimizedLines = fitter.optimize(parsedData);
-    
-    // Write the optimized code
-    fs.writeFileSync(outputFile, optimizedLines.join('\n'));
+      const optimizedLines = fitter.optimize(parsedData);
+     
+     // Write the optimized code
+     fs.writeFileSync(outputFile, optimizedLines.join('\n'));
 
     const originalSize = fs.statSync(inputFile).size;
     const optimizedSize = fs.statSync(outputFile).size;
