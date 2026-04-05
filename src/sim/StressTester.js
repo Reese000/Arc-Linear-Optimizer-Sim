@@ -1,6 +1,6 @@
 const GCodeParser = require('../core/GCodeParser');
 const ArcFitter = require('../core/ArcFitter');
-const Verifier = require('./Verifier');
+const Verifier = require('../core/evaluation/Verifier');
 const TestCaseGenerator = require('./TestCaseGenerator');
 const chalk = require('chalk');
 const fs = require('fs');
@@ -303,8 +303,8 @@ class StressTester {
 
             const batch = suite.slice(i, i + parallel);
             const batchPromises = batch.map(test => this.runTest(test.name, test.generator, { constraints: test.constraints }));
-            const batchResults = await Promise.all(batchPromises);
-            this.results.push(...batchResults);
+            await Promise.all(batchPromises);
+            // Note: runTest already adds to this.results, no need to push again
 
             // Progress reporting
             const completed = Math.min(i + parallel, suite.length);

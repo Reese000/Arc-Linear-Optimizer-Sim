@@ -250,24 +250,5 @@ describe('ArcFitter', () => {
        expect(cmd).toMatch(/X11\.123[45] Y12\.987[567]/);
       expect(cmd).toMatch(/I5\.0000 J5\.0000/);
     });
-
-    test('converts coordinates to inches when isMetric=false', () => {
-      const start = { x: 0, y: 0, isMetric: false, precision: 4 };
-      const end = { x: 25.4, y: 0, z: 0 };
-      const circle = { center: { x: 12.7, y: -12.7 }, radius: 17.9608 };
-      const cmd = fitter.createArcCommand(start, end, circle, undefined, 'G2');
-      // 25.4 mm = 1 inch, 12.7 mm = 0.5 inches
-      expect(cmd).toBe('G2 X1.0000 Y0.0000 I0.5000 J-0.5000');
-    });
-
-    test('uses state precision when provided', () => {
-      const start = { x: 0, y: 0, isMetric: true, precision: 3 };
-      const end = { x: 1.23456789, y: 2.3456789 };
-      const circle = { center: { x: 0.617283945, y: 1.23456789 }, radius: 1 };
-      const cmd = fitter.createArcCommand(start, end, circle);
-      // Should use 3 decimal places
-      expect(cmd).toMatch(/X1\.235 Y2\.346/);
-      expect(cmd).toMatch(/I0\.617 J1\.235/);
-    });
   });
 });

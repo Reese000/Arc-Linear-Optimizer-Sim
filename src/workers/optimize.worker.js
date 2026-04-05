@@ -13,11 +13,12 @@ parentPort.on('message', async (msg) => {
       const pathData = parser.parseFileContent(gcode);
       const fitter = new ArcFitter(options.tolerance, options);
       const optimized = fitter.optimize(pathData);
-      const quality = ArcFitter.computeQualityScore(
-        fitter.originalLineCount,
-        fitter.lastArcs,
-        fitter.lastLinearsCount
-      );
+       const quality = ArcFitter.computeQualityScore(
+         fitter.originalLineCount,
+         fitter.lastArcs,
+         fitter.lastLinearsCount,
+         options.tolerance
+       );
       const stats = ArcFitter.computeArcStats(fitter.lastArcs);
 
       parentPort.postMessage({

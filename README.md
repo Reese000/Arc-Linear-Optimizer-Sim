@@ -44,6 +44,8 @@ node main.js --input input.nc --tolerance 0.001
 --max-ijk             Maximum IJK magnitude (default: Infinity)
 --allow-helix         Allow helical arcs (Z changes during arcs)
 --bidirectional       Search backward and forward to maximize arc length
+--modal-suppression   Suppress redundant modal codes in output
+--ransac              Enable RANSAC robust circle fitting for outlier rejection
 --report, -r          Generate optimization report (JSON)
 --report-format       json or csv (default: json)
 --precision           Decimal places for coordinates (override auto)
@@ -51,6 +53,22 @@ node main.js --input input.nc --tolerance 0.001
 --verbose, -v         Enable verbose logging
 --help                Show this help message
 ```
+
+### Advanced Engine Options
+
+These parameters control the internal arc fitting engine. They are not typically needed but can be adjusted for specialized use cases.
+
+```
+--max-sweep           Maximum sweep angle in degrees (default: 360)
+--ransac-iterations   Number of RANSAC iterations when --ransac is enabled (default: 100)
+--workers             Number of parallel worker threads (default: auto, uses CPU count)
+```
+
+**Note:** Full-circle arcs (360° sweep) require `--max-sweep 360` (default is 360). If you need to limit sweep angles (e.g., to avoid arcs >180°), set `--max-sweep` accordingly.
+
+### Troubleshooting
+
+To diagnose why certain line segments were not converted to arcs, use `--verbose` to see which constraint (radius, IJK offset, Z continuity, sweep angle, or verification) caused rejection.
 
 ## Haas Integration
 
@@ -147,6 +165,10 @@ G2 Xend Yend Icenter_offset X Jcenter_offset Y [Ffeedrate]
 ```
 Precision defaults to 4 decimal places for G20 (inch) and 3 for G21 (mm), overrideable via `--precision`.
 
+### Quality Scoring
+
+The optimizer's quality score (used by AI optimization and reporting) is computed using actual geometric verification. Each arc is checked with the `Verifier` to ensure all original points lie within the specified tolerance. The scoring formula weights compression (60%), accuracy (30% – binary pass/fail based on verification), and stability (10% – penalizing tiny arcs, large sweeps, and radius variance).
+
 ## Testing
 
 Run unit tests:
@@ -157,6 +179,31 @@ npm test
 
 ## Project Structure
 
+```
+src/
+  core/
+    ArcFitter.js          - Facade for arc fitting and optimization
+    GCodeParser.js        - G-code parsing and modal state tracking
+    ToolpathState.js      - Modal state machine (G20/G21, absolute/incremental)
+    ArcOptimizer.js       - Core optimization engine (window scanning, validation, arc generation)
+    UnitConverter.js      - Unit conversion and precision helpers
+    evaluation/
+      ArcValidator.js    - Comprehensive validation of arcs against constraints
+      ArcUtils.js        - Arc direction and sweep angle computation
+      CircleFitter.js    - Circle fitting methods (Kåsa, Pratt, RANSAC)
+      QualityScorer.js   - Quality scoring with verification
+      Verifier.js        - Radial deviation verification engine
+      WindowEvaluator.js - Pure function for evaluating point windows (used in workers)
+    engine/
+      WorkerPool.js      - Manages a pool of worker threads for parallel evaluation
+  workers/
+    optimize.worker.js   - Worker for AI-driven parameter optimization
+    compute.worker.js    - Worker for parallel window evaluation
+  ai/
+    Optimizer.js         - AI parameter space exploration and best-config selection
+  web/
+    server.js            - Express server and REST API
+    public/              - Web-based visualizer and UI
 ```
 src/
   core/
@@ -176,24 +223,9 @@ tests/
 main.js               - CLI entry point
 ```
 
-## AI Parameter Tuning
+## License
 
-The optimizer includes an AI‑driven parameter search that automatically finds the best configuration for a given toolpath. It evaluates dozens of parameter combinations in parallel using worker threads and selects the highest‑scoring result.
-
-### Web Interface
-
-1. Upload a G‑code file.
-2. Set your Haas constraints (tolerance, radius limits, etc.).
-3. Click **✨ AI Optimize (Sweep Parameters)**.
-4. The system runs trials in the background and applies the best result.
-
-### API
-
-```
-GET /api/ai_optimize?file=part.nc&samples=20&numWorkers=4&tolerance=0.005,0.01,0.02&minSweep=5,10&useRANSAC=true,false
-```
-
-See [docs/AI_OPTIMIZATION.md](docs/AI_OPTIMIZATION.md) for full documentation.
+ISC
 
 ---
 

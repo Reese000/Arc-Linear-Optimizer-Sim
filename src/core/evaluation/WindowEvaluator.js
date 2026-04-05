@@ -4,7 +4,7 @@
  * and worker threads without side effects.
  */
 const CircleFitter = require('./CircleFitter');
-const Verifier = require('../../sim/Verifier');
+const Verifier = require('./Verifier');
 
 /**
  * Core evaluation logic.
@@ -14,109 +14,134 @@ const Verifier = require('../../sim/Verifier');
  * @param {Object} options - Options (tolerance, radii, etc.)
  * @returns {Object|null}
  */
-function evaluateWindowWithData(windowPoints, startState, endState, options = {}) {
-  const {
-    tolerance,
-    effectiveTolerance = tolerance,
-    minArcRadius = 0,
-    maxArcRadius = Infinity,
-    maxIJK = Infinity,
-    allowHelix = false,
-    useRANSAC = false,
-    minSweep = 5,
-    maxSweep = 180,
-    precision = 4
-  } = options;
+  function evaluateWindowWithData(windowPoints, startState, endState, options = {}) {
+     const {
+       tolerance,
+       effectiveTolerance = tolerance,
+       minArcRadius = 0,
+       maxArcRadius = Infinity,
+       maxR = Infinity,
+       allowHelix = false,
+       useRANSAC = false,
+       ransacIterations = 100,
+       minSweep = 5,
+       maxSweep = 180,
+       precision = 4,
+       debug = false
+     } = options;
 
-  if (windowPoints.length < 3) return null;
+   if (windowPoints.length < 3) {
+     if (debug) console.warn('WindowEvaluator: not enough points');
+     return null;
+   }
 
-  // Fit circle
-  const circle = useRANSAC
-    ? CircleFitter.fitCircleRANSAC(windowPoints, effectiveTolerance)
-    : CircleFitter.fitCircle(windowPoints);
+   // Fit circle
+   const circle = useRANSAC
+     ? CircleFitter.fitCircleRANSAC(windowPoints, effectiveTolerance, ransacIterations)
+     : CircleFitter.fitCircle(windowPoints);
 
   if (!circle) return null;
 
   const radius = circle.radius;
   const epsilon = 1e-9;
 
-  // Radius constraints
-  if (radius + epsilon < minArcRadius || radius - epsilon > maxArcRadius) {
-    return null;
-  }
+   // Radius constraints
+   if (radius + epsilon < minArcRadius || radius - epsilon > maxArcRadius) {
+     if (debug) console.warn(`WindowEvaluator: radius ${radius.toFixed(6)} outside [${minArcRadius}, ${maxArcRadius}]`);
+     return null;
+   }
 
-  // IJK constraints
-  const iVal = circle.center.x - startState.x;
-  const jVal = circle.center.y - startState.y;
-  if (Math.abs(iVal) > maxIJK + epsilon || Math.abs(jVal) > maxIJK + epsilon) {
-    return null;
-  }
-
-  // Z linearity for helical arcs
-  if (allowHelix && Math.abs(endState.z - startState.z) > 1e-9) {
-    const startA = Math.atan2(startState.y - circle.center.y, startState.x - circle.center.x);
-    const endA = Math.atan2(endState.y - circle.center.y, endState.x - circle.center.x);
-    // Determine direction
-    let direction = 'G2';
-    if (windowPoints.length >= 3) {
-      let mid = windowPoints[1];
-      let idx = 1;
-      while (idx < windowPoints.length && mid.x === startState.x && mid.y === startState.y) {
-        idx++;
-        if (idx < windowPoints.length) mid = windowPoints[idx];
-      }
-      if (idx < windowPoints.length) {
-        const ax = endState.x - startState.x;
-        const ay = endState.y - startState.y;
-        const bx = mid.x - startState.x;
-        const by = mid.y - startState.y;
-        const cross = ax * by - ay * bx;
-        direction = cross < 0 ? 'G3' : 'G2';
-      }
+    // I/J offset constraints
+    const iVal = circle.center.x - startState.x;
+    const jVal = circle.center.y - startState.y;
+    if (Math.abs(iVal) > maxR + epsilon || Math.abs(jVal) > maxR + epsilon) {
+      if (debug) console.warn(`WindowEvaluator: I/J offsets (${iVal.toFixed(6)}, ${jVal.toFixed(6)}) exceed maxR ${maxR}`);
+      return null;
     }
 
-    const TWOPI = 2 * Math.PI;
-    let sweepRad;
-    if (direction === 'G3') {
-      sweepRad = (endA - startA) % TWOPI;
-      if (sweepRad < 0) sweepRad += TWOPI;
-    } else {
-      sweepRad = (startA - endA) % TWOPI;
-      if (sweepRad < 0) sweepRad += TWOPI;
-    }
+   // Check Z motion: if any Z change and helix not allowed, reject immediately
+   const hasZChange = Math.abs(endState.z - startState.z) > 1e-9;
+   if (!allowHelix && hasZChange) {
+     if (debug) console.warn('WindowEvaluator: Z motion not allowed (allowHelix=false)');
+     return null;
+   }
 
-    const dzTotal = endState.z - startState.z;
-    for (let k = 1; k < windowPoints.length - 1; k++) {
-      const p = windowPoints[k];
-      const pA = Math.atan2(p.y - circle.center.y, p.x - circle.center.x);
-      let angleDiff;
-      if (direction === 'G3') {
-        angleDiff = (pA - startA) % TWOPI;
-        if (angleDiff < 0) angleDiff += TWOPI;
-      } else {
-        angleDiff = (startA - pA) % TWOPI;
-        if (angleDiff < 0) angleDiff += TWOPI;
-      }
-      const fraction = sweepRad > 0 ? angleDiff / sweepRad : 0;
-      const expectedZ = startState.z + fraction * dzTotal;
-      if (Math.abs(p.z - expectedZ) > effectiveTolerance) {
-        return null;
-      }
-    }
-  }
+   // If helix allowed and Z change present, verify linearity of Z along arc
+   if (allowHelix && hasZChange) {
+     const startA = Math.atan2(startState.y - circle.center.y, startState.x - circle.center.x);
+     const endA = Math.atan2(endState.y - circle.center.y, endState.x - circle.center.x);
+     // Determine direction
+     let direction = 'G2';
+     if (windowPoints.length >= 3) {
+       let mid = windowPoints[1];
+       let idx = 1;
+       while (idx < windowPoints.length && mid.x === startState.x && mid.y === startState.y) {
+         idx++;
+         if (idx < windowPoints.length) mid = windowPoints[idx];
+       }
+       if (idx < windowPoints.length) {
+         const ax = endState.x - startState.x;
+         const ay = endState.y - startState.y;
+         const bx = mid.x - startState.x;
+         const by = mid.y - startState.y;
+         const cross = ax * by - ay * bx;
+         direction = cross < 0 ? 'G3' : 'G2';
+       }
+     }
 
-  // Verify arc using Verifier (radial deviation + endpoint fallback)
-  const verifier = new Verifier(effectiveTolerance);
-  const verResult = verifier.verify(windowPoints, circle, startState, endState);
-  if (!verResult.isSafe) {
-    return null;
-  }
+     const TWOPI = 2 * Math.PI;
+     let sweepRad;
+     if (direction === 'G3') {
+       sweepRad = (endA - startA) % TWOPI;
+       if (sweepRad < 0) sweepRad += TWOPI;
+     } else {
+       sweepRad = (startA - endA) % TWOPI;
+       if (sweepRad < 0) sweepRad += TWOPI;
+     }
 
-  // Compute sweep degrees
-  const sweepDegrees = computeSweepDegrees(startState, endState, circle, windowPoints);
-  if (sweepDegrees < minSweep || sweepDegrees > maxSweep) {
-    return null;
-  }
+     const dzTotal = endState.z - startState.z;
+     for (let k = 1; k < windowPoints.length - 1; k++) {
+       const p = windowPoints[k];
+       const pA = Math.atan2(p.y - circle.center.y, p.x - circle.center.x);
+       let angleDiff;
+       if (direction === 'G3') {
+         angleDiff = (pA - startA) % TWOPI;
+         if (angleDiff < 0) angleDiff += TWOPI;
+       } else {
+         angleDiff = (startA - pA) % TWOPI;
+         if (angleDiff < 0) angleDiff += TWOPI;
+       }
+       const fraction = sweepRad > 0 ? angleDiff / sweepRad : 0;
+       const expectedZ = startState.z + fraction * dzTotal;
+       if (Math.abs(p.z - expectedZ) > effectiveTolerance) {
+         if (debug) console.warn(`WindowEvaluator: Z non-linear at point ${k}, dev=${Math.abs(p.z - expectedZ).toFixed(6)} > tol=${effectiveTolerance}`);
+         return null;
+       }
+     }
+   }
+
+   // Verify arc using Verifier (radial deviation + endpoint fallback)
+   const verifier = new Verifier(effectiveTolerance);
+   const verResult = verifier.verify(windowPoints, circle, startState, endState);
+   if (!verResult.isSafe) {
+     if (debug) console.warn(`WindowEvaluator: verification failed, maxDeviation=${verResult.maxDeviation.toFixed(6)} > tolerance=${effectiveTolerance}`);
+     return null;
+   }
+
+     // Compute sweep degrees (handle full-circle case: start ≈ end)
+     let sweepDegrees;
+     const chord = Math.hypot(endState.x - startState.x, endState.y - startState.y);
+     if (chord < effectiveTolerance * 10 && windowPoints.length >= 12) {
+       // Start and end very close with many points: treat as full 360° circle
+       sweepDegrees = 360;
+     } else {
+       sweepDegrees = computeSweepDegrees(startState, endState, circle, windowPoints);
+     }
+
+   if (sweepDegrees < minSweep || sweepDegrees > maxSweep) {
+     if (debug) console.warn(`WindowEvaluator: sweep ${sweepDegrees.toFixed(2)}° outside [${minSweep}, ${maxSweep}]`);
+     return null;
+   }
 
   return {
     valid: true,
@@ -188,12 +213,12 @@ function determineArcDirection(start, end, points) {
   }
   if (idx >= points.length) return 'G2';
 
-  const ax = end.x - start.x;
-  const ay = end.y - start.y;
-  const bx = mid.x - start.x;
-  const by = mid.y - start.y;
-  const cross = ax * by - ay * bx;
-  return cross < 0 ? 'G3' : 'G2';
+   const ax = end.x - start.x;
+   const ay = end.y - start.y;
+   const bx = mid.x - start.x;
+   const by = mid.y - start.y;
+   const cross = ax * by - ay * bx;
+   return cross < 0 ? 'G3' : 'G2';
 }
 
 module.exports = {

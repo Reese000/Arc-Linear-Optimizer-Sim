@@ -8,23 +8,22 @@ describe('ToolpathState G187 Integration', () => {
     expect(state.g187Enabled).toBe(true);
   });
 
-  test('stores G187 P level and computes tolerance correctly (metric)', () => {
+  test('stores G187 P parameter in correct units (mm)', () => {
     const state = new ToolpathState();
-    state.setting191 = 'MEDIUM'; // base 0.01mm
+    // G21 metric
     state.updateFromCommand({ G: [21] });
-    state.updateFromCommand({ G: [187], P: 1 }); // ROUGH ×10
-    expect(state.g187Tolerance).toBeCloseTo(0.1, 5);
-    expect(state.g187P).toBe(1);
+    state.updateFromCommand({ G: [187], P: 0.01 });
+    expect(state.g187Tolerance).toBe(0.01);
+    expect(state.g187P).toBe(0.01);
   });
 
-  test('G187 P-derived tolerance is independent of G20/G21 units', () => {
+  test('converts G187 P to mm when in inch mode (G20)', () => {
     const state = new ToolpathState();
-    state.setting191 = 'MEDIUM'; // base 0.01mm
-    // Inch mode
     state.updateFromCommand({ G: [20] });
-    state.updateFromCommand({ G: [187], P: 3 }); // FINISH ×0.1 → 0.001mm
-    expect(state.g187Tolerance).toBeCloseTo(0.001, 5);
-    expect(state.g187P).toBe(3);
+    state.updateFromCommand({ G: [187], P: 0.001 });
+    // 0.001" = 0.0254 mm
+    expect(state.g187Tolerance).toBeCloseTo(0.0254, 5);
+    expect(state.g187P).toBe(0.001);
   });
 
   test('getEffectiveTolerance returns tighter of default and G187', () => {

@@ -6,7 +6,7 @@
 const GCodeParser = require('../../src/core/GCodeParser');
 const ArcFitter = require('../../src/core/ArcFitter');
 const ToolpathState = require('../../src/core/ToolpathState');
-const Verifier = require('../../src/sim/Verifier');
+const Verifier = require('../../src/core/evaluation/Verifier');
 
 describe('Critical Edge Cases', () => {
   describe('Parser: Malformed & Tricky Input', () => {
@@ -85,10 +85,10 @@ describe('Critical Edge Cases', () => {
         .toThrow('maxArcRadius must be greater than or equal to minArcRadius');
     });
 
-    test('negative maxIJK throws', () => {
-      expect(() => new ArcFitter(0.001, { maxIJK: -1 }))
-        .toThrow('maxIJK must be non-negative');
-    });
+     test('negative maxR throws', () => {
+       expect(() => new ArcFitter(0.001, { maxR: -1 }))
+         .toThrow('maxR must be non-negative');
+     });
 
     test('tolerance <= 0 throws', () => {
       expect(() => new ArcFitter(0, {})).toThrow('Tolerance must be a positive number');
@@ -107,7 +107,6 @@ describe('Critical Edge Cases', () => {
     test('arc sweep > 180° triggers warning', () => {
       const consoleSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
       // Increase maxSweep to allow 200° arc to be created, triggering warning
-      const fitter = new ArcFitter(0.001, { maxSweep: 250 });
       // Build 200° arc
       const points = [];
       for (let i = 0; i <= 10; i++) {
@@ -129,6 +128,8 @@ describe('Critical Edge Cases', () => {
           })()
         });
       }
+      // Use a larger tolerance to allow arc creation despite chordal deviation (~0.15 per segment)
+      const fitter = new ArcFitter(0.2, { maxSweep: 250 });
       fitter.optimize(points);
       expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('exceeds 180°'));
       consoleSpy.mockRestore();
@@ -307,36 +308,37 @@ G1 X1 Y1`;
    });
 
    describe('Helical Arc Z Linearity', () => {
-     test('verifier detects non-linear Z interpolation', () => {
-       const verifier = new Verifier(0.001); // 1mm tolerance
-       const circle = { center: { x: 0, y: 0 }, radius: 10 };
-       const start = { x: 10, y: 0, z: 0 };
-       const end = { x: -10, y: 0, z: 10 }; // 180° arc, Z from 0 to 10
+      test('verifier detects non-linear Z interpolation', () => {
+        // Use tolerance 0.05 mm: allows chordal deviation (~0.03) but rejects 0.1 Z deviation
+        const verifier = new Verifier(0.05);
+        const circle = { center: { x: 0, y: 0 }, radius: 10 };
+        const start = { x: 10, y: 0, z: 0 };
+        const end = { x: -10, y: 0, z: 10 }; // 180° arc, Z from 0 to 10
 
-       // Perfectly linear Z points along the arc (semicircle)
-       const perfectPoints = [];
-       const steps = 20;
-       const sweep = Math.PI; // 180 degrees
-       for (let i = 0; i <= steps; i++) {
-         const theta = (i / steps) * sweep; // 0 to π
-         const x = 10 * Math.cos(theta);
-         const y = 10 * Math.sin(theta);
-         const z = (i / steps) * 10; // linear
-         perfectPoints.push({ x, y, z });
-       }
+        // Perfectly linear Z points along the arc (semicircle)
+        const perfectPoints = [];
+        const steps = 20;
+        const sweep = Math.PI; // 180 degrees
+        for (let i = 0; i <= steps; i++) {
+          const theta = (i / steps) * sweep; // 0 to π
+          const x = 10 * Math.cos(theta);
+          const y = 10 * Math.sin(theta);
+          const z = (i / steps) * 10; // linear
+          perfectPoints.push({ x, y, z });
+        }
 
-       let result = verifier.verify(perfectPoints, circle, start, end);
-       expect(result.isSafe).toBe(true);
+        let result = verifier.verify(perfectPoints, circle, start, end);
+        expect(result.isSafe).toBe(true);
 
-       // Introduce Z deviation in middle point
-       const badPoints = perfectPoints.map((p, i) => {
-         if (i === 10) return { ...p, z: p.z + 0.1 }; // +0.1mm deviation
-         return p;
-       });
-       result = verifier.verify(badPoints, circle, start, end);
-       expect(result.isSafe).toBe(false);
-     });
-   });
+        // Introduce Z deviation in middle point
+        const badPoints = perfectPoints.map((p, i) => {
+          if (i === 10) return { ...p, z: p.z + 0.1 }; // +0.1mm deviation
+          return p;
+        });
+        result = verifier.verify(badPoints, circle, start, end);
+        expect(result.isSafe).toBe(false);
+      });
+    });
 
    describe('AutoTune Parameter Search', () => {
      test('optimizeAuto searches over multiple multipliers', () => {

@@ -32,6 +32,7 @@ class AIOptimizer {
     // Create workers
     const workers = [];
     const pending = new Map(); // jobId -> resolve
+    const jobWorkers = new Map(); // jobId -> worker
     let jobIdCounter = 0;
     const results = new Array(paramSets.length); // preserve order
 
@@ -48,30 +49,48 @@ class AIOptimizer {
               resolve({ status: 'error', error: msg.error });
             }
             pending.delete(jobId);
+            jobWorkers.delete(jobId);
           }
         }
       });
-      worker.on('error', (err) => console.error('Worker error:', err));
+      worker.on('error', (err) => {
+        console.error('Worker error:', err);
+        // Reject all pending jobs assigned to this worker
+        for (const [jobId, w] of jobWorkers.entries()) {
+          if (w === worker) {
+            const resolve = pending.get(jobId);
+            if (resolve) {
+              resolve({ status: 'error', error: err });
+              pending.delete(jobId);
+            }
+            jobWorkers.delete(jobId);
+          }
+        }
+        // Terminate the faulty worker to clean up
+        worker.terminate().catch(() => {});
+      });
       workers.push(worker);
     }
 
      // Distribute jobs round-robin
-     const promises = paramSets.map((params, idx) => {
-       return new Promise((resolve) => {
-         const jobId = jobIdCounter++;
-         pending.set(jobId, resolve);
-         const workerIdx = idx % this.numWorkers;
-         const worker = workers[workerIdx];
-         // Merge fixed options with sampled parameters (sample overrides if conflict)
-         const mergedOptions = { ...fixedOptions, ...params };
-         worker.postMessage({
-           type: 'optimize',
-           jobId,
-           gcode,
-           options: mergedOptions
-         });
-       });
-     });
+      const promises = paramSets.map((params, idx) => {
+        return new Promise((resolve) => {
+          const jobId = jobIdCounter++;
+          pending.set(jobId, resolve);
+          const workerIdx = idx % this.numWorkers;
+          const worker = workers[workerIdx];
+          // Track which worker is assigned this job
+          jobWorkers.set(jobId, worker);
+          // Merge fixed options with sampled parameters (sample overrides if conflict)
+          const mergedOptions = { ...fixedOptions, ...params };
+          worker.postMessage({
+            type: 'optimize',
+            jobId,
+            gcode,
+            options: mergedOptions
+          });
+        });
+      });
 
     // Wait for all
     const rawResults = await Promise.all(promises);

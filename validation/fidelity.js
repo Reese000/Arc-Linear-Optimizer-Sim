@@ -37,7 +37,7 @@ async function runSingleTest(seed, caseType, tolerance, constraints) {
   for (const arc of fitter.lastArcs) {
     const arcTol = arc.effectiveTolerance || tolerance;
     // Use Verifier to compute actual max deviation within arc
-    const Verifier = require('../src/sim/Verifier');
+    const Verifier = require('../src/core/evaluation/Verifier');
     const verifier = new Verifier(arcTol);
     const vresult = verifier.verify(arc.originalPoints, arc.circle, arc.start, arc.end);
     if (!vresult.isSafe) {

@@ -81,7 +81,7 @@ class WorkerPool {
     if (windows.length === 0) return [];
 
     // Simple round-robin chunking: assign windows to workers in consecutive chunks
-    const chunks = this._chunkArray(windows, Math.ceil(windows.length / this.numWorkers));
+     const chunks = this._chunkArray(windows, this.numWorkers);
     const promises = [];
 
     for (let i = 0; i < this.workers.length; i++) {
