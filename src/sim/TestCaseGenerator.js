@@ -169,10 +169,55 @@ class TestCaseGenerator {
    * @param {Array} points - Array of {x, y, z}
    * @returns {string} - G-code string
    */
-  pointsToGcode(points) {
-    const lines = ["G21", "G90", "F1000", "G0 X" + points[0].x + " Y" + points[0].y];
+  pointsToGcode(points, options = {}) {
+    if (!Array.isArray(points) || points.length === 0) {
+        console.error('pointsToGcode: invalid points array', { pointsLength: points ? points.length : 'null/undefined', firstItem: points ? points[0] : 'N/A' });
+        return "";
+    }
+    const first = points[0];
+    if (!first) {
+        console.error('pointsToGcode: first point is undefined', { pointsLength: points.length });
+        return "";
+    }
+    const lines = ["G21", "G90", "F1000", "G0 X" + first.x + " Y" + first.y];
     for (let i = 1; i < points.length; i++) {
-        lines.push(`G1 X${points[i].x.toFixed(this.precision)} Y${points[i].y.toFixed(this.precision)}`);
+        const p = points[i];
+        if (!p) continue; // skip any undefined entries
+        lines.push(`G1 X${p.x.toFixed(this.precision)} Y${p.y.toFixed(this.precision)}`);
+    }
+    if (options.addReturn) {
+        // Add rapid return to safe Z and then to X0 Y0 to simulate program end or tool change
+        lines.push("G0 Z5", "G0 X0 Y0");
+    }
+    return lines.join("\n");
+  }
+
+  /**
+   * Generates a multi-pass program with rapid transitions between separate toolpaths.
+   * This simulates a real NC program with multiple operations.
+   * @param {Array} subPaths - Array of point arrays (each sub-path)
+   * @param {Object} options - { safeZ, returnHome }
+   * @returns {string} G-code
+   */
+  generateProgram(subPaths, options = {}) {
+    const lines = ["G21", "G90", "F1000"];
+    const safeZ = options.safeZ || 5;
+    const returnHome = options.returnHome !== undefined ? options.returnHome : true;
+    for (let p = 0; p < subPaths.length; p++) {
+        const points = subPaths[p];
+        if (!points || points.length === 0) continue;
+        // Rapid to start of this sub-path (after safe Z if not first)
+        if (p > 0) {
+            lines.push(`G0 Z${safeZ}`);
+        }
+        lines.push(`G0 X${points[0].x} Y${points[0].y}`);
+        // Feed through the sub-path
+        for (let i = 1; i < points.length; i++) {
+            lines.push(`G1 X${points[i].x.toFixed(this.precision)} Y${points[i].y.toFixed(this.precision)}`);
+        }
+    }
+    if (returnHome) {
+        lines.push("G0 Z5", "G0 X0 Y0", "M30");
     }
     return lines.join("\n");
   }

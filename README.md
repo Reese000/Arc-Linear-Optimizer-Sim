@@ -176,9 +176,24 @@ tests/
 main.js               - CLI entry point
 ```
 
-## License
+## AI Parameter Tuning
 
-ISC
+The optimizer includes an AI‑driven parameter search that automatically finds the best configuration for a given toolpath. It evaluates dozens of parameter combinations in parallel using worker threads and selects the highest‑scoring result.
+
+### Web Interface
+
+1. Upload a G‑code file.
+2. Set your Haas constraints (tolerance, radius limits, etc.).
+3. Click **✨ AI Optimize (Sweep Parameters)**.
+4. The system runs trials in the background and applies the best result.
+
+### API
+
+```
+GET /api/ai_optimize?file=part.nc&samples=20&numWorkers=4&tolerance=0.005,0.01,0.02&minSweep=5,10&useRANSAC=true,false
+```
+
+See [docs/AI_OPTIMIZATION.md](docs/AI_OPTIMIZATION.md) for full documentation.
 
 ---
 

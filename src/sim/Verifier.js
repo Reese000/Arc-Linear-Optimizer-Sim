@@ -29,87 +29,115 @@ class Verifier {
    * @param {Object} end - Arc end point {x, y}
    * @returns {Object} - {isSafe: boolean, maxDeviation: number}
    */
-  verify(originalPoints, circle, start, end) {
-    let result = {
-      isSafe: true,
-      maxDeviation: 0
-    };
-    const { center: { x: cx, y: cy }, radius } = circle;
+    verify(originalPoints, circle, start, end) {
+     let result = {
+       isSafe: true,
+       maxDeviation: 0
+     };
+     const { center: { x: cx, y: cy }, radius } = circle;
 
-    // Determine arc direction using first intermediate point (consistent with ArcFitter.determineArcDirection)
-    let isCCW = false; // default to G2 clockwise
-    if (originalPoints.length > 2) {
-        // Find first intermediate point (skip start duplicates)
-        let mid = null;
-        for (let i = 1; i < originalPoints.length; i++) {
-            const p = originalPoints[i];
-            if (p.x !== start.x || p.y !== start.y) {
-                mid = p;
-                break;
-            }
-        }
-        if (mid) {
-            const ax = end.x - start.x;
-            const ay = end.y - start.y;
-            const bx = mid.x - start.x;
-            const by = mid.y - start.y;
-            const cross = ax * by - ay * bx;
-            // Using (end-start) x (mid-start): cross < 0 indicates CCW (G3), cross > 0 indicates CW (G2)
-            isCCW = cross < 0;
-        }
-    }
+     // Determine arc direction using first intermediate point (consistent with ArcFitter.determineArcDirection)
+     let isCCW = false; // default to G2 clockwise
+     if (originalPoints.length > 2) {
+         // Find first intermediate point (skip start duplicates)
+         let mid = null;
+         for (let i = 1; i < originalPoints.length; i++) {
+             const p = originalPoints[i];
+             if (p.x !== start.x || p.y !== start.y) {
+                 mid = p;
+                 break;
+             }
+         }
+         if (mid) {
+             const ax = end.x - start.x;
+             const ay = end.y - start.y;
+             const bx = mid.x - start.x;
+             const by = mid.y - start.y;
+             const cross = ax * by - ay * bx;
+             // Using (end-start) x (mid-start): cross < 0 indicates CCW (G3), cross > 0 indicates CW (G2)
+             isCCW = cross < 0;
+         }
+     }
 
-    // Compute start and end angles
-    const startA = Math.atan2(start.y - cy, start.x - cx);
-    const endA = Math.atan2(end.y - cy, end.x - cx);
-    const TWOPI = 2 * Math.PI;
+     // Compute start and end angles
+     const startA = Math.atan2(start.y - cy, start.x - cx);
+     const endA = Math.atan2(end.y - cy, end.x - cx);
+     const TWOPI = 2 * Math.PI;
 
-    // Compute sweep angle (positive)
-    let sweep;
-    if (isCCW) {
-      sweep = (endA - startA) % TWOPI;
-      if (sweep < 0) sweep += TWOPI;
-    } else {
-      sweep = (startA - endA) % TWOPI;
-      if (sweep < 0) sweep += TWOPI;
-    }
+     // Compute sweep angle (positive)
+     let sweep;
+     const samePoint = Math.abs(start.x - end.x) < 1e-9 && Math.abs(start.y - end.y) < 1e-9;
+     if (samePoint) {
+       // Full circle: sweep = 360°
+       sweep = TWOPI;
+     } else if (isCCW) {
+       sweep = (endA - startA) % TWOPI;
+       if (sweep < 0) sweep += TWOPI;
+     } else {
+       sweep = (startA - endA) % TWOPI;
+       if (sweep < 0) sweep += TWOPI;
+     }
 
-    for (const p of originalPoints) {
-      const dx = p.x - cx, dy = p.y - cy;
-      const dist = Math.sqrt(dx*dx + dy*dy);
-      const radialDev = Math.abs(dist - radius);
-      const pA = Math.atan2(dy, dx);
+     // Helical Z linearity check
+     const hasZChange = Math.abs(end.z - start.z) > 1e-9;
+     if (hasZChange) {
+       const dzTotal = end.z - start.z;
+       for (let k = 1; k < originalPoints.length - 1; k++) {
+         const p = originalPoints[k];
+         const pA = Math.atan2(p.y - cy, p.x - cx);
+         let angleDiff;
+         if (isCCW) {
+           angleDiff = (pA - startA) % TWOPI;
+           if (angleDiff < 0) angleDiff += TWOPI;
+         } else {
+           angleDiff = (startA - pA) % TWOPI;
+           if (angleDiff < 0) angleDiff += TWOPI;
+         }
+         const fraction = sweep > 0 ? angleDiff / sweep : 0;
+         const expectedZ = start.z + fraction * dzTotal;
+         const zDev = Math.abs(p.z - expectedZ);
+         if (zDev > result.maxDeviation) result.maxDeviation = zDev;
+         if (zDev > this.tolerance) result.isSafe = false;
+       }
+     }
 
-      // Check if point lies on arc segment
-      let onArc;
-      let offset = null;
-      if (isCCW) {
-        offset = (pA - startA) % TWOPI;
-        if (offset < 0) offset += TWOPI;
-        onArc = offset <= sweep + 1e-9;
-      } else {
-        offset = (startA - pA) % TWOPI;
-        if (offset < 0) offset += TWOPI;
-        onArc = offset <= sweep + 1e-9;
-      }
+     // XY radial/endpoint check
+     for (const p of originalPoints) {
+       const dx = p.x - cx, dy = p.y - cy;
+       const dist = Math.sqrt(dx*dx + dy*dy);
+       const radialDev = Math.abs(dist - radius);
+       const pA = Math.atan2(dy, dx);
 
-      let dev;
-      if (onArc) {
-        dev = radialDev;
-      } else {
-        // Distance to nearest endpoint
-        const dStart = Math.hypot(p.x - start.x, p.y - start.y);
-        const dEnd = Math.hypot(p.x - end.x, p.y - end.y);
-        dev = Math.min(dStart, dEnd);
-      }
+       // Check if point lies on arc segment
+       let onArc;
+       let offset = null;
+       if (isCCW) {
+         offset = (pA - startA) % TWOPI;
+         if (offset < 0) offset += TWOPI;
+         onArc = offset <= sweep + 1e-9;
+       } else {
+         offset = (startA - pA) % TWOPI;
+         if (offset < 0) offset += TWOPI;
+         onArc = offset <= sweep + 1e-9;
+       }
 
-      if (dev > result.maxDeviation) result.maxDeviation = dev;
-      if (dev > this.tolerance) result.isSafe = false;
-    }
+       let dev;
+       if (onArc) {
+         dev = radialDev;
+       } else {
+         // Distance to nearest endpoint
+         const dStart = Math.hypot(p.x - start.x, p.y - start.y);
+         const dEnd = Math.hypot(p.x - end.x, p.y - end.y);
+         dev = Math.min(dStart, dEnd);
+       }
 
-    if (result.maxDeviation > this.maxDeviation) this.maxDeviation = result.maxDeviation;
-    return result;
-  }
+       if (dev > result.maxDeviation) result.maxDeviation = dev;
+       if (dev > this.tolerance) result.isSafe = false;
+     }
+
+     if (result.maxDeviation > this.maxDeviation) this.maxDeviation = result.maxDeviation;
+     return result;
+   }
 
   getSummary() {
     return {

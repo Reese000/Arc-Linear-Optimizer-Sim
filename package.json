@@ -3,9 +3,12 @@
   "version": "1.0.0",
   "description": "A high-fidelity simulation environment for G-code linearization and arc fitting, optimized for non-HSM Haas CNC mills.",
   "main": "main.js",
-   "scripts": {
-     "test": "jest --verbose"
-   },
+  "scripts": {
+    "test": "jest --verbose",
+    "fidelity": "node validation/fidelity.js 1000",
+    "benchmark": "node benchmarks/suite.js",
+    "ai-demo": "node test_ai.js"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",

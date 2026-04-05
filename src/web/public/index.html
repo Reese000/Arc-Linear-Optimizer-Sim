@@ -39,6 +39,7 @@
                 <div class="stat">Original Lines: <span id="orig-count">-</span></div>
                 <div class="stat">Optimized Lines: <span id="opt-count">-</span></div>
                 <div id="compression-msg" style="color: #4caf50; font-weight: bold; margin-top: 10px;"></div>
+                <div id="deviation-stats" style="margin-top: 10px; font-size: 0.85rem; color: #ff9800;"></div>
             </div>
              <div class="controls">
              <div class="stat">Path Type:</div>
@@ -50,14 +51,19 @@
              </select>
              <div class="stat">Active Seed:</div>
              <input type="number" id="seed-input" value="123456">
-             <button onclick="regenerate()">Regenerate Toolpath</button>
-             <button onclick="randomizeSeed()" style="background: #555; margin-top: 5px;">Randomize Seed</button>
+              <button onclick="regenerate()">Regenerate Toolpath</button>
+              <button onclick="randomizeSeed()" style="background: #555; margin-top: 5px;">Randomize Seed</button>
 
-             <div class="stat" style="margin-top: 15px;">Haas Constraints:</div>
-             <div class="constraint-group">
-                 <label style="font-size: 0.85rem;">Tolerance:</label>
-                 <input type="number" id="constraint-tolerance" value="0.001" step="0.0001" min="0">
-             </div>
+              <div class="upload-section" style="margin-top: 15px; border-top: 1px solid #444; padding-top: 10px;">
+                  <button onclick="aiOptimize()" style="background: #673ab7; margin-top: 5px; color: white; width: 100%; font-weight: bold;">✨ AI Optimize (Sweep Parameters)</button>
+                  <div id="ai-status" style="font-size: 0.8rem; margin-top: 5px; color: #ffeb3b;"></div>
+              </div>
+
+              <div class="stat" style="margin-top: 15px;">Haas Constraints:</div>
+              <div class="constraint-group">
+                  <label style="font-size: 0.85rem;">Tolerance (mm):</label>
+                  <input type="number" id="constraint-tolerance" value="0.01" step="0.001" min="0">
+              </div>
              <div class="constraint-group">
                  <label style="font-size: 0.85rem;">Min Arc Radius:</label>
                  <input type="number" id="constraint-min-radius" value="0" step="0.1">
@@ -66,30 +72,47 @@
                  <label style="font-size: 0.85rem;">Max Arc Radius:</label>
                  <input type="number" id="constraint-max-radius" value="1000" step="1">
              </div>
-             <div class="constraint-group">
-                 <label style="font-size: 0.85rem;">Max IJK:</label>
-                 <input type="number" id="constraint-max-ijk" value="999.9999" step="0.1">
-             </div>
-              <div class="toggle-group">
-                  <label class="toggle-item"><input type="checkbox" id="constraint-allow-helix"> Allow Helical Arcs</label>
-                  <label class="toggle-item"><input type="checkbox" id="constraint-ransac"> RANSAC Robust Fitting</label>
-                  <label class="toggle-item"><input type="checkbox" id="show-ideal" checked onchange="toggleLayer('ideal')"> Show Ideal</label>
-                  <label class="toggle-item"><input type="checkbox" id="show-orig" checked onchange="toggleLayer('original')"> Show Tessellated</label>
-                  <label class="toggle-item"><input type="checkbox" id="show-opt" checked onchange="toggleLayer('optimized')"> Show Optimized</label>
+              <div class="constraint-group">
+                  <label style="font-size: 0.85rem;">Max IJK:</label>
+                  <input type="number" id="constraint-max-ijk" value="999.9999" step="0.1">
               </div>
+              <div class="constraint-group">
+                  <label style="font-size: 0.85rem;">Min Sweep (deg):</label>
+                  <input type="number" id="constraint-min-sweep" value="5" step="1" min="0">
+              </div>
+               <div class="toggle-group">
+                   <label class="toggle-item"><input type="checkbox" id="constraint-allow-helix"> Allow Helical Arcs</label>
+                   <label class="toggle-item"><input type="checkbox" id="constraint-ransac" checked> RANSAC Robust Fitting</label>
+                   <label class="toggle-item"><input type="checkbox" id="constraint-bidirectional" checked> Bidirectional Refinement</label>
+                   <label class="toggle-item"><input type="checkbox" id="show-ideal" checked onchange="toggleLayer('ideal')"> Show Ideal</label>
+                   <label class="toggle-item"><input type="checkbox" id="show-orig" checked onchange="toggleLayer('original')"> Show Tessellated</label>
+                   <label class="toggle-item"><input type="checkbox" id="show-opt" checked onchange="toggleLayer('optimized')"> Show Optimized</label>
+               </div>
              <div class="upload-section" style="margin-top: 15px; border-top: 1px solid #444; padding-top: 10px;">
                  <div class="stat">Upload Custom G-code:</div>
                  <input type="file" id="file-upload" accept=".nc,.txt" style="font-size: 0.85rem;">
                  <button onclick="uploadFile()" style="background: #ff9800; margin-top: 5px;">Upload</button>
                  <div id="upload-status" style="font-size: 0.8rem; margin-top: 5px;"></div>
              </div>
-         </div>
+          </div>
             <div class="controls-hint">
                 <b>Controls:</b><br>
                 • Orbit: Left-Click + Drag<br>
                 • Pan: Right-Click + Drag<br>
                 • Zoom: Scroll Wheel
             </div>
+        </div>
+        <div class="code-panel" style="position: absolute; top: 20px; right: 20px; width: 350px; max-height: 80vh; overflow: auto; background: rgba(0,0,0,0.8); border-radius: 8px; border: 1px solid #333; z-index: 10; padding: 15px; pointer-events: auto;">
+            <h2 style="margin: 0 0 10px; font-size: 1rem; color: #00bcd4;">G-code Comparison</h2>
+            <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                <label style="flex: 1;">
+                    <input type="radio" name="code-view" value="original" checked onchange="toggleCodeView('original')"> Original
+                </label>
+                <label style="flex: 1;">
+                    <input type="radio" name="code-view" value="optimized" onchange="toggleCodeView('optimized')"> Optimized
+                </label>
+            </div>
+            <div id="code-list" style="font-family: monospace; font-size: 0.75rem; line-height: 1.4; color: #ccc;"></div>
         </div>
     </div>
 

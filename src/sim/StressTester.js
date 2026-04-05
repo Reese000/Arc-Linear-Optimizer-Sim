@@ -153,27 +153,6 @@ class StressTester {
             stabilityScore * stabilityWeight
         );
     }
-            const pctSmall = smallSweepCount / arcs.length;
-            const pctLarge = largeSweepCount / arcs.length;
-
-            // Coefficient of variation of radii
-            const radiiMean = radii.reduce((sum, r) => sum + r, 0) / radii.length;
-            const radiiVariance = radii.reduce((sum, r) => sum + Math.pow(r - radiiMean, 2), 0) / radii.length;
-            const cv = Math.sqrt(radiiVariance) / (radiiMean || 1);
-
-            // Penalize small arcs (too short, may cause jerky motion), large sweeps (>180), and high radius variation
-            stabilityScore = Math.max(0, 100 - 40 * pctSmall - 20 * pctLarge - 15 * cv);
-        } else {
-            // No arcs means all linears, which is stable but not optimal
-            stabilityScore = 80;
-        }
-
-        return Math.round(
-          compressionScore * compressionWeight +
-          accuracyScore * accuracyWeight +
-          stabilityScore * stabilityWeight
-        );
-    }
 
     /**
      * Returns an array of test case definitions (name, generator, optional constraints).
